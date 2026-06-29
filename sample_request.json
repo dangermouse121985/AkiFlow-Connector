@@ -1,0 +1,15 @@
+{
+  "current_time": "2026-06-29T12:50:00",
+  "calendar": [
+    {"title": "Lunch", "start": "2026-06-29T12:00:00", "end": "2026-06-29T13:00:00", "movable": false, "kind": "event"},
+    {"title": "Onboarding sync", "start": "2026-06-29T14:30:00", "end": "2026-06-29T15:00:00", "movable": false, "kind": "event"},
+    {"title": "Slack Email Check", "start": "2026-06-29T17:30:00", "end": "2026-06-29T18:00:00", "movable": false, "kind": "event"}
+  ],
+  "tasks": [
+    {"title": "Draft Qu Pay MOTO Knowledge Base article", "duration": 90, "priority": "HIGH", "project": "Qu Pay Enablement", "tags": ["Deep Work"], "task_type": "work"},
+    {"title": "Capture Qu Pay MOTO screenshots", "duration": 30, "priority": "MEDIUM", "project": "Qu Pay Enablement", "tags": ["Deep Work"], "task_type": "work"},
+    {"title": "Send Doc360 launch materials to Marketing", "duration": 30, "priority": "MEDIUM", "project": "Qu Pay Enablement", "tags": ["Quick Win"], "task_type": "work"},
+    {"title": "Apply for passport", "duration": 30, "priority": "HIGH", "project": "Personal Admin", "tags": ["Quick Win"], "task_type": "personal"},
+    {"title": "Do laundry", "duration": 45, "priority": "MEDIUM", "project": "Home", "tags": ["Quick Win"], "task_type": "personal"}
+  ]
+}

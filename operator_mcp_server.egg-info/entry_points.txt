@@ -1,0 +1,2 @@
+[console_scripts]
+operator-server = productivity_operator.main:main

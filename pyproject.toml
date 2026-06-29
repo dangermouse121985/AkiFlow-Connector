@@ -1,0 +1,14 @@
+[project]
+name = "operator-mcp-server"
+version = "0.1.0"
+description = "Personal Chief of Staff / Operator MCP-style server scaffold"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.7.0",
+  "python-dotenv>=1.0.1",
+]
+
+[project.scripts]
+operator-server = "productivity_operator.main:main"
