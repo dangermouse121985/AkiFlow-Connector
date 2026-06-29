@@ -4,17 +4,32 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from productivity_operator.commands import akiflow_ai_command
 from productivity_operator.inbox import review_inbox
 from productivity_operator.manual import PRODUCTIVITY_MANUAL
-from productivity_operator.models import DayPlanRequest, DayPlanResponse, InboxReviewRequest, InboxReviewResponse
-from productivity_operator.planning.day_planner import plan_day
+from productivity_operator.models import (
+    DayPlanRequest,
+    DayPlanResponse,
+    InboxReviewRequest,
+    InboxReviewResponse,
+)
+from productivity_operator.planner import PlannerEngine
 
 app = FastAPI(title="Operator", version="0.3.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+planner = PlannerEngine()
 
 class CommandResponse(BaseModel):
     command: str
@@ -45,12 +60,12 @@ def manual() -> dict[str, str]:
 
 @app.post("/plan/day", response_model=DayPlanResponse)
 def plan_day_endpoint(req: DayPlanRequest) -> DayPlanResponse:
-    return plan_day(req)
+    return planner.plan_day(req)
 
 
 @app.post("/commands/akiflow-ai", response_model=CommandResponse)
 def akiflow_command_endpoint(req: DayPlanRequest) -> CommandResponse:
-    plan = plan_day(req)
+    plan = planner.plan_day(req)
     command = akiflow_ai_command(plan)
     plan.command = command
     return CommandResponse(command=command, plan=plan)
