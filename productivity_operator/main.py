@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from productivity_operator.analysis import TaskAnalyzer
 from productivity_operator.commands import akiflow_ai_command
 from productivity_operator.inbox import review_inbox
 from productivity_operator.manual import PRODUCTIVITY_MANUAL
@@ -32,11 +34,16 @@ app.add_middleware(
 
 planner = PlannerEngine()
 task_scorer = TaskScorer()
+task_analyzer = TaskAnalyzer()
 
 
 class CommandResponse(BaseModel):
     command: str
     plan: DayPlanResponse
+
+
+class AnalyzeTasksRequest(BaseModel):
+    tasks: list[dict[str, Any]]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,6 +86,17 @@ def score_tasks(req: DayPlanRequest) -> dict:
     scores = [task_scorer.score_task(task, req.current_time).__dict__ for task in req.tasks]
     scores.sort(key=lambda item: item["score"], reverse=True)
     return {"scores": scores}
+
+
+@app.post("/analyze/tasks")
+def analyze_tasks(req: AnalyzeTasksRequest) -> dict:
+    analyzed_tasks = []
+
+    for task in req.tasks:
+        analysis = task_analyzer.analyze_task(task).__dict__
+        analyzed_tasks.append({**task, "analysis": analysis})
+
+    return {"tasks": analyzed_tasks}
 
 
 @app.post("/inbox/review", response_model=InboxReviewResponse)

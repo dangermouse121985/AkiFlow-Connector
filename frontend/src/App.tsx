@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import {
+  type AnalyzedTask,
   type DashboardTask,
   type ScoredTask,
+  analyzeTasks,
   generateAkiflowCommand,
   getHealth,
   getSample,
@@ -55,8 +57,11 @@ function App() {
   const [command, setCommand] = useState("No command generated yet.");
   const [plan, setPlan] = useState<PlanResult["plan"] | null>(null);
   const [scoredTasks, setScoredTasks] = useState<ScoredTask[]>([]);
+  const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
   const [isScoringTasks, setIsScoringTasks] = useState(false);
+  const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
   const [scoringError, setScoringError] = useState("");
+  const [analysisError, setAnalysisError] = useState("");
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -76,6 +81,7 @@ function App() {
   async function loadSample() {
     setError("");
     setScoringError("");
+    setAnalysisError("");
     const sample = await getSample();
     setInput(JSON.stringify(sample, null, 2));
   }
@@ -83,6 +89,7 @@ function App() {
   async function generate() {
     setError("");
     setScoringError("");
+    setAnalysisError("");
 
     try {
       const payload = JSON.parse(input) as DayPlanPayload;
@@ -90,6 +97,7 @@ function App() {
 
       setCommand(result.command);
       setPlan(result.plan);
+      setAnalyzedTasks([]);
 
       if (payload.tasks?.length) {
         setIsScoringTasks(true);
@@ -108,6 +116,29 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setIsScoringTasks(false);
+    }
+  }
+
+  async function analyzeCurrentTasks() {
+    setAnalysisError("");
+    setError("");
+
+    try {
+      const payload = JSON.parse(input) as DayPlanPayload;
+      if (!payload.tasks?.length) {
+        setAnalyzedTasks([]);
+        setAnalysisError("Load or paste tasks before analyzing.");
+        return;
+      }
+
+      setIsAnalyzingTasks(true);
+      const tasks = await analyzeTasks({ tasks: payload.tasks });
+      setAnalyzedTasks(tasks);
+    } catch (err) {
+      setAnalyzedTasks([]);
+      setAnalysisError(err instanceof Error ? err.message : "Task analysis failed");
+    } finally {
+      setIsAnalyzingTasks(false);
     }
   }
 
@@ -169,13 +200,43 @@ function App() {
 
       {error && <pre className="error">{error}</pre>}
       {scoringError && <p className="inline-error">Task scoring failed. The dashboard is still usable.</p>}
+      {analysisError && <p className="inline-error">{analysisError}</p>}
 
       <section className="actions">
         <button onClick={loadSample}>Load Sample Day</button>
         <button className="primary" onClick={generate}>
           Plan Today
         </button>
+        <button onClick={analyzeCurrentTasks}>Analyze Tasks</button>
         <button onClick={copyCommand}>Copy Akiflow Command</button>
+      </section>
+
+      <section className="panel analysis-panel">
+        <div className="panel-heading">
+          <h2>Task Analysis</h2>
+          {isAnalyzingTasks ? <span className="analysis-status">Analyzing tasks...</span> : null}
+        </div>
+        {analyzedTasks.length ? (
+          <ul className="analysis-list">
+            {analyzedTasks.slice(0, 5).map((task, index) => (
+              <li key={`${task.title}-${index}`}>
+                <strong>{safeTaskTitle(task.title)}</strong>
+                <div className="analysis-meta">
+                  <span>{task.analysis?.estimated_duration_minutes ?? "?"} min</span>
+                  <span>{formatLabel(task.analysis?.energy_required)} energy</span>
+                  <span>{formatLabel(task.analysis?.best_time_of_day)}</span>
+                  {task.analysis?.requires_deep_work ? <span>Deep work</span> : null}
+                  {task.analysis?.can_split ? <span>Can split</span> : null}
+                </div>
+                {task.analysis?.recommended_chunks?.length ? (
+                  <p className="analysis-chunks">{formatReasons(task.analysis.recommended_chunks)}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">No task analysis yet.</p>
+        )}
       </section>
 
       <section className="panel recommendation-panel">
@@ -224,7 +285,7 @@ function App() {
                         </span>
                       ) : null}
                     </div>
-                    {item.reasons?.length ? <p className="score-reasons">{item.reasons.join(" · ")}</p> : null}
+                    {item.reasons?.length ? <p className="score-reasons">{formatReasons(item.reasons)}</p> : null}
                     <p>
                       {item.start ?? "Unscheduled"} {item.end ? `- ${item.end}` : ""}
                       {item.duration ? ` - ${item.duration} min` : ""}
@@ -320,6 +381,14 @@ function safeReasons(reasons: unknown) {
 
 function formatReasons(reasons: string[]) {
   return reasons.join(" \u00b7 ");
+}
+
+function formatLabel(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return "Unknown";
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {

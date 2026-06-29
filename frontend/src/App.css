@@ -132,6 +132,10 @@ h2 {
   border-color: #bdd7c7;
 }
 
+.analysis-panel {
+  border-color: #cfe0ec;
+}
+
 .recommendation-content {
   display: grid;
   gap: 8px;
@@ -195,7 +199,8 @@ h2 {
 }
 
 .score-badge,
-.scoring-status {
+.scoring-status,
+.analysis-status {
   border-radius: 999px;
   padding: 5px 9px;
   font-size: 12px;
@@ -220,7 +225,49 @@ h2 {
   font-weight: 700;
 }
 
-.scoring-status {
+.analysis-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.analysis-list li {
+  border-top: 1px solid #edf1f7;
+  padding-top: 12px;
+}
+
+.analysis-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.analysis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.analysis-meta span {
+  background: #eef2f8;
+  border-radius: 999px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 9px;
+}
+
+.analysis-chunks {
+  color: #5a6b89;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 8px 0 0;
+}
+
+.scoring-status,
+.analysis-status {
   background: #fff7dd;
   color: #8a5a00;
 }
