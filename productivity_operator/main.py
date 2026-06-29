@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from productivity_operator.commands import akiflow_ai_command
@@ -19,6 +20,7 @@ from productivity_operator.models import (
 )
 from productivity_operator.planner import PlannerEngine
 from productivity_operator.scoring import TaskScorer
+from productivity_operator.services import AkiflowService, AkiflowServiceError
 
 app = FastAPI(title="Operator", version="0.3.0")
 
@@ -32,6 +34,7 @@ app.add_middleware(
 
 planner = PlannerEngine()
 task_scorer = TaskScorer()
+akiflow_service = AkiflowService()
 
 
 class CommandResponse(BaseModel):
@@ -79,6 +82,54 @@ def score_tasks(req: DayPlanRequest) -> dict:
     scores = [task_scorer.score_task(task, req.current_time).__dict__ for task in req.tasks]
     scores.sort(key=lambda item: item["score"], reverse=True)
     return {"scores": scores}
+
+
+@app.get("/akiflow/test")
+def akiflow_test() -> dict:
+    try:
+        return akiflow_service.test_connection()
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/akiflow/login")
+def akiflow_login() -> RedirectResponse:
+    try:
+        return RedirectResponse(akiflow_service.authorization_url())
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/akiflow/oauth/callback", response_class=HTMLResponse)
+def akiflow_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> str:
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing Akiflow OAuth code or state.")
+
+    try:
+        akiflow_service.complete_oauth_callback(code, state)
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return """
+    <!doctype html>
+    <html>
+      <head><title>Akiflow Connected</title></head>
+      <body>
+        <h1>Akiflow connected</h1>
+        <p>You can return to Operator and click Create Test Task.</p>
+      </body>
+    </html>
+    """
+
+
+@app.post("/akiflow/test-task")
+def akiflow_test_task() -> dict:
+    try:
+        return akiflow_service.create_test_task()
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/inbox/review", response_model=InboxReviewResponse)

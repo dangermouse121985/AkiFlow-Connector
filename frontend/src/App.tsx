@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import {
+  AKIFLOW_LOGIN_URL,
   type DashboardTask,
   type ScoredTask,
+  createAkiflowTestTask,
   generateAkiflowCommand,
   getHealth,
   getSample,
@@ -57,6 +59,8 @@ function App() {
   const [scoredTasks, setScoredTasks] = useState<ScoredTask[]>([]);
   const [isScoringTasks, setIsScoringTasks] = useState(false);
   const [scoringError, setScoringError] = useState("");
+  const [akiflowTestStatus, setAkiflowTestStatus] = useState("");
+  const [isCreatingAkiflowTask, setIsCreatingAkiflowTask] = useState(false);
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -113,6 +117,25 @@ function App() {
 
   async function copyCommand() {
     await navigator.clipboard.writeText(command);
+  }
+
+  async function createTestTask() {
+    setAkiflowTestStatus("");
+    setIsCreatingAkiflowTask(true);
+
+    try {
+      await createAkiflowTestTask();
+      setAkiflowTestStatus("Created Akiflow test task.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not create Akiflow test task";
+      setAkiflowTestStatus(message);
+    } finally {
+      setIsCreatingAkiflowTask(false);
+    }
+  }
+
+  function connectAkiflow() {
+    window.location.href = AKIFLOW_LOGIN_URL;
   }
 
   const scoreByTaskKey = useMemo(() => {
@@ -176,7 +199,12 @@ function App() {
           Plan Today
         </button>
         <button onClick={copyCommand}>Copy Akiflow Command</button>
+        <button onClick={connectAkiflow}>Connect Akiflow</button>
+        <button onClick={createTestTask} disabled={isCreatingAkiflowTask}>
+          {isCreatingAkiflowTask ? "Creating..." : "Create Test Task"}
+        </button>
       </section>
+      {akiflowTestStatus ? <p className="inline-status">{akiflowTestStatus}</p> : null}
 
       <section className="panel recommendation-panel">
         <div className="panel-heading">

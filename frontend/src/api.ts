@@ -1,5 +1,7 @@
 const API_BASE = "http://localhost:8000";
 
+export const AKIFLOW_LOGIN_URL = `${API_BASE}/akiflow/login`;
+
 export type DashboardTask = {
   id?: string | null;
   title: string;
@@ -101,4 +103,19 @@ export async function scoreTasks(payload: unknown): Promise<ScoredTask[]> {
   }
 
   return extractScoredTasks(data);
+}
+
+export async function createAkiflowTestTask() {
+  const res = await fetch(`${API_BASE}/akiflow/test-task`, {
+    method: "POST",
+    mode: "cors",
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data;
 }
