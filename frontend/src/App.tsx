@@ -20,6 +20,7 @@ type ScheduledFocusItem = {
   project?: string;
   priority?: string;
   score?: number;
+  reasons?: string[];
 };
 
 type PlanResult = {
@@ -127,10 +128,15 @@ function App() {
 
   const focusItems = useMemo(() => {
     const scheduled = normalizeScheduledItems(plan);
-    const withScores = scheduled.map((item) => ({
-      ...item,
-      score: scoreByTaskKey.get(taskKey(item) ?? "")?.score,
-    }));
+    const withScores = scheduled.map((item) => {
+      const scoredTask = scoreByTaskKey.get(taskKey(item) ?? "");
+
+      return {
+        ...item,
+        score: scoredTask?.score,
+        reasons: safeReasons(scoredTask?.reasons),
+      };
+    });
 
     if (!SORT_FOCUS_BY_SCORE) return withScores;
 
@@ -191,6 +197,7 @@ function App() {
                         </span>
                       ) : null}
                     </div>
+                    {item.reasons?.length ? <p className="score-reasons">{item.reasons.join(" · ")}</p> : null}
                     <p>
                       {item.start ?? "Unscheduled"} {item.end ? `- ${item.end}` : ""}
                       {item.duration ? ` - ${item.duration} min` : ""}
@@ -253,6 +260,12 @@ function App() {
 
 function taskKey(task: { id?: string | null; title?: string }) {
   return task.id ?? task.title ?? null;
+}
+
+function safeReasons(reasons: unknown) {
+  if (!Array.isArray(reasons)) return [];
+
+  return reasons.filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
 }
 
 function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {

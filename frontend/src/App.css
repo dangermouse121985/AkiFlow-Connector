@@ -193,6 +193,13 @@ h2 {
   color: #166534;
 }
 
+.score-reasons {
+  margin: 4px 0 0;
+  color: #5a6b89;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .scoring-status {
   background: #fff7dd;
   color: #8a5a00;

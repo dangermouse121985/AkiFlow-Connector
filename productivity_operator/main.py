@@ -76,7 +76,7 @@ def akiflow_command_endpoint(req: DayPlanRequest) -> CommandResponse:
 
 @app.post("/score/tasks")
 def score_tasks(req: DayPlanRequest) -> dict:
-    scores = [task_scorer.score_task(task).__dict__ for task in req.tasks]
+    scores = [task_scorer.score_task(task, req.current_time).__dict__ for task in req.tasks]
     scores.sort(key=lambda item: item["score"], reverse=True)
     return {"scores": scores}
 

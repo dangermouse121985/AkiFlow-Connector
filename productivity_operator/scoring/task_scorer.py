@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
@@ -14,7 +15,7 @@ class TaskScore:
 
 
 class TaskScorer:
-    def score_task(self, task: Any) -> TaskScore:
+    def score_task(self, task: Any, now: datetime | None = None) -> TaskScore:
         score = 0
         reasons: list[str] = []
 
@@ -22,6 +23,7 @@ class TaskScorer:
         tags = [str(tag).lower() for tag in self._get(task, "tags", [])]
         title = str(self._get(task, "title", ""))
         duration = self._get(task, "duration", None)
+        deadline = self._get(task, "deadline", None)
 
         if priority == "high":
             score += 40
@@ -35,44 +37,50 @@ class TaskScorer:
 
         if "waiting" in tags:
             score -= 100
-            reasons.append("Waiting task should not be scheduled")
+            reasons.append("Waiting/blocking")
 
         if "deep work" in tags:
             score += 20
-            reasons.append("Deep Work task")
+            reasons.append("Deep work")
 
         if "quick win" in tags:
             score += 15
-            reasons.append("Quick Win")
+            reasons.append("Quick win")
 
         if "research" in tags:
             score += 8
-            reasons.append("Research task")
+            reasons.append("Research")
 
         if "reading" in tags:
             score += 3
-            reasons.append("Reading task")
+            reasons.append("Reading")
+
+        if now:
+            days_until_deadline = self._days_until_deadline(deadline, now)
+            if days_until_deadline is not None and 0 <= days_until_deadline <= 3:
+                score += 15
+                reasons.append("Due soon")
 
         if isinstance(duration, int):
             if duration <= 15:
                 score += 8
-                reasons.append("Fits a short gap")
+                reasons.append("Short task")
             elif duration <= 45:
                 score += 5
-                reasons.append("Fits a medium gap")
+                reasons.append("Medium task")
             elif duration <= 120:
                 score += 3
-                reasons.append("Fits within task size limit")
+                reasons.append("Focused task")
             else:
                 score -= 50
-                reasons.append("Task is larger than two hours")
+                reasons.append("Over two hours")
 
         title_lower = title.lower()
         if any(word in title_lower for word in ["follow up", "send", "publish", "review"]):
             score += 10
-            reasons.append("Likely to unblock or move work forward")
+            reasons.append("Waiting/blocking")
 
-        return TaskScore(id=self._get(task, "id", None), title=title, score=score, reasons=reasons)
+        return TaskScore(id=self._get(task, "id", None), title=title, score=score, reasons=list(dict.fromkeys(reasons)))
 
     def _get(self, task: Any, field: str, default: Any = None) -> Any:
         if isinstance(task, dict):
@@ -85,3 +93,24 @@ class TaskScorer:
             return str(value.value).lower()
 
         return str(value).lower()
+
+    def _days_until_deadline(self, deadline: Any, now: datetime) -> int | None:
+        if deadline is None:
+            return None
+
+        if isinstance(deadline, datetime):
+            due_date = deadline.date()
+        elif isinstance(deadline, date):
+            due_date = deadline
+        elif isinstance(deadline, str):
+            try:
+                due_date = datetime.fromisoformat(deadline).date()
+            except ValueError:
+                try:
+                    due_date = date.fromisoformat(deadline)
+                except ValueError:
+                    return None
+        else:
+            return None
+
+        return (due_date - now.date()).days
