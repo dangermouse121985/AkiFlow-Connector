@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -11,13 +12,14 @@ class TaskScore:
 
 
 class TaskScorer:
-    def score_task(self, task: dict) -> TaskScore:
+    def score_task(self, task: Any) -> TaskScore:
         score = 0
         reasons: list[str] = []
 
-        priority = str(task.get("priority", "")).lower()
-        tags = [str(tag).lower() for tag in task.get("tags", [])]
-        title = str(task.get("title", ""))
+        priority = str(self._get(task, "priority", "")).lower()
+        tags = [str(tag).lower() for tag in self._get(task, "tags", [])]
+        title = str(self._get(task, "title", ""))
+        duration = self._get(task, "duration", None)
 
         if priority == "high":
             score += 40
@@ -49,7 +51,6 @@ class TaskScorer:
             score += 3
             reasons.append("Reading task")
 
-        duration = task.get("duration")
         if isinstance(duration, int):
             if duration <= 15:
                 score += 8
@@ -70,3 +71,9 @@ class TaskScorer:
             reasons.append("Likely to unblock or move work forward")
 
         return TaskScore(title=title, score=score, reasons=reasons)
+
+    def _get(self, task: Any, field: str, default: Any = None) -> Any:
+        if isinstance(task, dict):
+            return task.get(field, default)
+
+        return getattr(task, field, default)

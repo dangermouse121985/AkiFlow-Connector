@@ -18,6 +18,7 @@ from productivity_operator.models import (
     InboxReviewResponse,
 )
 from productivity_operator.planner import PlannerEngine
+from productivity_operator.scoring import TaskScorer
 
 app = FastAPI(title="Operator", version="0.3.0")
 
@@ -30,6 +31,8 @@ app.add_middleware(
 )
 
 planner = PlannerEngine()
+task_scorer = TaskScorer()
+
 
 class CommandResponse(BaseModel):
     command: str
@@ -69,6 +72,13 @@ def akiflow_command_endpoint(req: DayPlanRequest) -> CommandResponse:
     command = akiflow_ai_command(plan)
     plan.command = command
     return CommandResponse(command=command, plan=plan)
+
+
+@app.post("/score/tasks")
+def score_tasks(req: DayPlanRequest) -> dict:
+    scores = [task_scorer.score_task(task).__dict__ for task in req.tasks]
+    scores.sort(key=lambda item: item["score"], reverse=True)
+    return {"scores": scores}
 
 
 @app.post("/inbox/review", response_model=InboxReviewResponse)
