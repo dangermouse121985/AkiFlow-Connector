@@ -19,6 +19,20 @@ export type ScoredTask = {
   [key: string]: unknown;
 };
 
+export type TaskAnalysis = {
+  estimated_duration_minutes?: number;
+  requires_deep_work?: boolean;
+  can_split?: boolean;
+  recommended_chunks?: string[];
+  best_time_of_day?: "morning" | "afternoon" | "evening" | "anytime";
+  energy_required?: "low" | "medium" | "high";
+  context_switch_cost?: "low" | "medium" | "high";
+};
+
+export type AnalyzedTask = DashboardTask & {
+  analysis?: TaskAnalysis;
+};
+
 export async function getHealth() {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 3000);
@@ -86,6 +100,29 @@ function isScoredTask(value: unknown): value is ScoredTask {
   );
 }
 
+function extractAnalyzedTasks(data: unknown): AnalyzedTask[] {
+  if (Array.isArray(data)) return data.filter(isAnalyzedTask);
+
+  if (data && typeof data === "object") {
+    const candidate = data as {
+      tasks?: unknown;
+      analyzed_tasks?: unknown;
+    };
+
+    const tasks = candidate.tasks ?? candidate.analyzed_tasks;
+    if (Array.isArray(tasks)) return tasks.filter(isAnalyzedTask);
+  }
+
+  return [];
+}
+
+function isAnalyzedTask(value: unknown): value is AnalyzedTask {
+  if (!value || typeof value !== "object") return false;
+
+  const task = value as { title?: unknown; analysis?: unknown };
+  return typeof task.title === "string" && (typeof task.analysis === "object" || typeof task.analysis === "undefined");
+}
+
 export async function scoreTasks(payload: unknown): Promise<ScoredTask[]> {
   const res = await fetch(`${API_BASE}/score/tasks`, {
     method: "POST",
@@ -101,4 +138,21 @@ export async function scoreTasks(payload: unknown): Promise<ScoredTask[]> {
   }
 
   return extractScoredTasks(data);
+}
+
+export async function analyzeTasks(payload: unknown): Promise<AnalyzedTask[]> {
+  const res = await fetch(`${API_BASE}/analyze/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    mode: "cors",
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return extractAnalyzedTasks(data);
 }
