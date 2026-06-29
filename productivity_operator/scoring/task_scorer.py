@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 
 @dataclass
 class TaskScore:
+    id: str | None
     title: str
     score: int
     reasons: list[str]
@@ -16,7 +18,7 @@ class TaskScorer:
         score = 0
         reasons: list[str] = []
 
-        priority = str(self._get(task, "priority", "")).lower()
+        priority = self._normalize(self._get(task, "priority", ""))
         tags = [str(tag).lower() for tag in self._get(task, "tags", [])]
         title = str(self._get(task, "title", ""))
         duration = self._get(task, "duration", None)
@@ -70,10 +72,16 @@ class TaskScorer:
             score += 10
             reasons.append("Likely to unblock or move work forward")
 
-        return TaskScore(title=title, score=score, reasons=reasons)
+        return TaskScore(id=self._get(task, "id", None), title=title, score=score, reasons=reasons)
 
     def _get(self, task: Any, field: str, default: Any = None) -> Any:
         if isinstance(task, dict):
             return task.get(field, default)
 
         return getattr(task, field, default)
+
+    def _normalize(self, value: Any) -> str:
+        if isinstance(value, Enum):
+            return str(value.value).lower()
+
+        return str(value).lower()

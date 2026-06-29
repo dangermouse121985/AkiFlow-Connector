@@ -1,25 +1,51 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
-import { generateAkiflowCommand, getHealth, getSample } from "./api";
+import {
+  type DashboardTask,
+  type ScoredTask,
+  generateAkiflowCommand,
+  getHealth,
+  getSample,
+  scoreTasks,
+} from "./api";
+
+const SORT_FOCUS_BY_SCORE = true;
+
+type ScheduledFocusItem = {
+  id?: string | null;
+  title: string;
+  start?: string;
+  end?: string;
+  duration?: number;
+  project?: string;
+  priority?: string;
+  score?: number;
+};
 
 type PlanResult = {
   command: string;
   plan: {
-    scheduled_items?: Array<{
-      title: string;
+    scheduled_items?: ScheduledFocusItem[];
+    scheduled?: Array<{
+      task: DashboardTask;
       start?: string;
       end?: string;
-      duration?: number;
-      project?: string;
-      priority?: string;
+      rationale?: string;
     }>;
     deferred_items?: Array<{
       title: string;
       reason?: string;
     }>;
+    deferred?: DashboardTask[];
     risks?: string[];
+    notes?: string[];
     summary?: string;
   };
+};
+
+type DayPlanPayload = {
+  tasks?: DashboardTask[];
+  [key: string]: unknown;
 };
 
 function App() {
@@ -27,6 +53,9 @@ function App() {
   const [input, setInput] = useState("");
   const [command, setCommand] = useState("No command generated yet.");
   const [plan, setPlan] = useState<PlanResult["plan"] | null>(null);
+  const [scoredTasks, setScoredTasks] = useState<ScoredTask[]>([]);
+  const [isScoringTasks, setIsScoringTasks] = useState(false);
+  const [scoringError, setScoringError] = useState("");
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -45,27 +74,76 @@ function App() {
 
   async function loadSample() {
     setError("");
+    setScoringError("");
     const sample = await getSample();
     setInput(JSON.stringify(sample, null, 2));
   }
 
   async function generate() {
     setError("");
+    setScoringError("");
 
     try {
-      const payload = JSON.parse(input);
+      const payload = JSON.parse(input) as DayPlanPayload;
       const result: PlanResult = await generateAkiflowCommand(payload);
 
       setCommand(result.command);
       setPlan(result.plan);
+
+      if (payload.tasks?.length) {
+        setIsScoringTasks(true);
+        try {
+          const scores = await scoreTasks(payload);
+          setScoredTasks(scores);
+        } catch (err) {
+          setScoredTasks([]);
+          setScoringError(err instanceof Error ? err.message : "Task scoring failed");
+        } finally {
+          setIsScoringTasks(false);
+        }
+      } else {
+        setScoredTasks([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
+      setIsScoringTasks(false);
     }
   }
 
   async function copyCommand() {
     await navigator.clipboard.writeText(command);
   }
+
+  const scoreByTaskKey = useMemo(() => {
+    const map = new Map<string, ScoredTask>();
+
+    scoredTasks.forEach((task) => {
+      const key = taskKey(task);
+      if (key) map.set(key, task);
+    });
+
+    return map;
+  }, [scoredTasks]);
+
+  const focusItems = useMemo(() => {
+    const scheduled = normalizeScheduledItems(plan);
+    const withScores = scheduled.map((item) => ({
+      ...item,
+      score: scoreByTaskKey.get(taskKey(item) ?? "")?.score,
+    }));
+
+    if (!SORT_FOCUS_BY_SCORE) return withScores;
+
+    return [...withScores].sort((a, b) => {
+      if (typeof a.score !== "number" && typeof b.score !== "number") return 0;
+      if (typeof a.score !== "number") return 1;
+      if (typeof b.score !== "number") return -1;
+      return b.score - a.score;
+    });
+  }, [plan, scoreByTaskKey]);
+
+  const deferredItems = useMemo(() => normalizeDeferredItems(plan), [plan]);
+  const risks = plan?.risks ?? plan?.notes ?? [];
 
   return (
     <main className="app">
@@ -83,6 +161,7 @@ function App() {
       </header>
 
       {error && <pre className="error">{error}</pre>}
+      {scoringError && <p className="inline-error">Task scoring failed. The dashboard is still usable.</p>}
 
       <section className="actions">
         <button onClick={loadSample}>Load Sample Day</button>
@@ -94,32 +173,42 @@ function App() {
 
       <section className="dashboard-grid">
         <div className="panel focus-panel">
-          <h2>Today’s Focus</h2>
-          {plan?.scheduled_items?.length ? (
+          <div className="panel-heading">
+            <h2>Today's Focus</h2>
+            {isScoringTasks ? <span className="scoring-status">Scoring tasks...</span> : null}
+          </div>
+          {focusItems.length ? (
             <ul className="focus-list">
-              {plan.scheduled_items.slice(0, 5).map((item, index) => (
+              {focusItems.slice(0, 5).map((item, index) => (
                 <li key={`${item.title}-${index}`}>
                   <span className="rank">{index + 1}</span>
-                  <div>
-                    <strong>{item.title}</strong>
+                  <div className="task-copy">
+                    <div className="task-row">
+                      <strong>{item.title}</strong>
+                      {typeof item.score === "number" ? (
+                        <span className={item.score >= 60 ? "score-badge high" : "score-badge"}>
+                          Score: {item.score}
+                        </span>
+                      ) : null}
+                    </div>
                     <p>
-                      {item.start ?? "Unscheduled"} {item.end ? `– ${item.end}` : ""}
-                      {item.duration ? ` • ${item.duration} min` : ""}
+                      {item.start ?? "Unscheduled"} {item.end ? `- ${item.end}` : ""}
+                      {item.duration ? ` - ${item.duration} min` : ""}
                     </p>
                   </div>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="muted">Generate a plan to see today’s focus.</p>
+            <p className="muted">Generate a plan to see today's focus.</p>
           )}
         </div>
 
         <div className="panel">
           <h2>Risks</h2>
-          {plan?.risks?.length ? (
+          {risks.length ? (
             <ul>
-              {plan.risks.map((risk, index) => (
+              {risks.map((risk, index) => (
                 <li key={`${risk}-${index}`}>{risk}</li>
               ))}
             </ul>
@@ -128,9 +217,9 @@ function App() {
           )}
 
           <h2>Deferred</h2>
-          {plan?.deferred_items?.length ? (
+          {deferredItems.length ? (
             <ul>
-              {plan.deferred_items.map((item, index) => (
+              {deferredItems.map((item, index) => (
                 <li key={`${item.title}-${index}`}>
                   <strong>{item.title}</strong>
                   {item.reason ? <p>{item.reason}</p> : null}
@@ -160,6 +249,34 @@ function App() {
       </section>
     </main>
   );
+}
+
+function taskKey(task: { id?: string | null; title?: string }) {
+  return task.id ?? task.title ?? null;
+}
+
+function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {
+  if (!plan) return [];
+  if (plan.scheduled_items?.length) return plan.scheduled_items;
+
+  return (
+    plan.scheduled?.map((item) => ({
+      id: item.task.id,
+      title: item.task.title,
+      start: item.start,
+      end: item.end,
+      duration: item.task.duration,
+      project: item.task.project ?? undefined,
+      priority: item.task.priority,
+    })) ?? []
+  );
+}
+
+function normalizeDeferredItems(plan: PlanResult["plan"] | null): Array<{ title: string; reason?: string }> {
+  if (!plan) return [];
+  if (plan.deferred_items?.length) return plan.deferred_items;
+
+  return plan.deferred?.map((task) => ({ title: task.title })) ?? [];
 }
 
 export default App;
