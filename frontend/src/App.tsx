@@ -150,6 +150,7 @@ function App() {
 
   const deferredItems = useMemo(() => normalizeDeferredItems(plan), [plan]);
   const risks = plan?.risks ?? plan?.notes ?? [];
+  const recommendedTask = useMemo(() => getRecommendedTask(scoredTasks), [scoredTasks]);
 
   return (
     <main className="app">
@@ -175,6 +176,32 @@ function App() {
           Plan Today
         </button>
         <button onClick={copyCommand}>Copy Akiflow Command</button>
+      </section>
+
+      <section className="panel recommendation-panel">
+        <div className="panel-heading">
+          <h2>Operator Recommendation</h2>
+        </div>
+        {recommendedTask ? (
+          <div className="recommendation-content">
+            <p className="recommendation-title">
+              <span>Recommended next:</span> {recommendedTask.title}
+            </p>
+            {typeof recommendedTask.score === "number" ? (
+              <span className={recommendedTask.score >= 60 ? "score-badge high" : "score-badge"}>
+                Score: {recommendedTask.score}
+              </span>
+            ) : null}
+            {recommendedTask.reasons.length ? (
+              <div>
+                <p className="recommendation-label">Why:</p>
+                <p className="score-reasons">{formatReasons(recommendedTask.reasons)}</p>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className="muted">No recommendation yet.</p>
+        )}
       </section>
 
       <section className="dashboard-grid">
@@ -262,10 +289,37 @@ function taskKey(task: { id?: string | null; title?: string }) {
   return task.id ?? task.title ?? null;
 }
 
+function getRecommendedTask(scoredTasks: ScoredTask[]) {
+  const validTasks = scoredTasks
+    .map((task) => ({
+      title: safeTaskTitle(task.title),
+      score: task.score,
+      reasons: safeReasons(task.reasons),
+    }))
+    .filter((task) => task.title !== "Untitled task" || typeof task.score === "number" || task.reasons.length);
+
+  if (!validTasks.length) return null;
+
+  return [...validTasks].sort((a, b) => {
+    if (typeof a.score !== "number" && typeof b.score !== "number") return 0;
+    if (typeof a.score !== "number") return 1;
+    if (typeof b.score !== "number") return -1;
+    return b.score - a.score;
+  })[0];
+}
+
+function safeTaskTitle(title: unknown) {
+  return typeof title === "string" && title.trim().length ? title : "Untitled task";
+}
+
 function safeReasons(reasons: unknown) {
   if (!Array.isArray(reasons)) return [];
 
   return reasons.filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
+}
+
+function formatReasons(reasons: string[]) {
+  return reasons.join(" \u00b7 ");
 }
 
 function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {
