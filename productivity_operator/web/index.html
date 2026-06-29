@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Operator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 32px; max-width: 1100px; }
+    textarea { width: 100%; min-height: 280px; font-family: monospace; font-size: 14px; }
+    button { padding: 10px 14px; margin: 8px 8px 8px 0; cursor: pointer; }
+    pre { white-space: pre-wrap; background: #f4f4f4; padding: 16px; border-radius: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Operator</h1>
+  <p>Paste a day-planning request JSON, generate a plan, then copy the Akiflow AI command.</p>
+
+  <div class="grid">
+    <section>
+      <h2>Input</h2>
+      <textarea id="input"></textarea>
+      <br />
+      <button onclick="loadSample()">Load Sample</button>
+      <button onclick="generate()">Generate Akiflow Command</button>
+    </section>
+
+    <section>
+      <h2>Akiflow Command</h2>
+      <button onclick="copyCommand()">Copy Command</button>
+      <pre id="command">No command yet.</pre>
+    </section>
+  </div>
+
+  <h2>Plan Details</h2>
+  <pre id="details">No plan yet.</pre>
+
+  <script>
+    async function loadSample() {
+      const sample = await fetch('/sample').then(r => r.json());
+      document.getElementById('input').value = JSON.stringify(sample, null, 2);
+    }
+
+    async function generate() {
+      const input = document.getElementById('input').value;
+      let payload;
+
+      try {
+        payload = JSON.parse(input);
+      } catch (err) {
+        alert('Invalid JSON');
+        return;
+      }
+
+      const response = await fetch('/commands/akiflow-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        document.getElementById('command').textContent = 'Error';
+        document.getElementById('details').textContent = JSON.stringify(data, null, 2);
+        return;
+      }
+
+      document.getElementById('command').textContent = data.command;
+      document.getElementById('details').textContent = JSON.stringify(data.plan, null, 2);
+    }
+
+    async function copyCommand() {
+      const text = document.getElementById('command').textContent;
+      await navigator.clipboard.writeText(text);
+      alert('Copied');
+    }
+
+    loadSample();
+  </script>
+</body>
+</html>

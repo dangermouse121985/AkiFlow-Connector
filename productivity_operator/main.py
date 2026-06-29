@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from productivity_operator.commands import akiflow_ai_command
@@ -9,7 +13,7 @@ from productivity_operator.manual import PRODUCTIVITY_MANUAL
 from productivity_operator.models import DayPlanRequest, DayPlanResponse, InboxReviewRequest, InboxReviewResponse
 from productivity_operator.planning.day_planner import plan_day
 
-app = FastAPI(title="Operator MCP Server", version="0.2.0")
+app = FastAPI(title="Operator", version="0.3.0")
 
 
 class CommandResponse(BaseModel):
@@ -17,9 +21,21 @@ class CommandResponse(BaseModel):
     plan: DayPlanResponse
 
 
+@app.get("/", response_class=HTMLResponse)
+def dashboard() -> str:
+    index_path = Path(__file__).parent / "web" / "index.html"
+    return index_path.read_text(encoding="utf-8")
+
+
+@app.get("/sample")
+def sample() -> dict:
+    sample_path = Path(__file__).parent.parent / "sample_day_request.json"
+    return json.loads(sample_path.read_text(encoding="utf-8"))
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.3.0"}
 
 
 @app.get("/manual")
