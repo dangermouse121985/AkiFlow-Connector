@@ -11,6 +11,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import date
 from queue import Empty, Queue
 from typing import Any
 
@@ -118,6 +119,33 @@ class AkiflowService:
             "result": result,
         }
 
+    def list_tools(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "transport": self._transport_name(),
+            "result": self._mcp_request("tools/list", {}),
+        }
+
+    def get_today_tasks(self) -> list[dict[str, Any]]:
+        today = date.today().isoformat()
+        result = self._call_first_available_tool(
+            [
+                (
+                    "get_schedule",
+                    {
+                        "start_date": today,
+                        "end_date": today,
+                        "entities": "tasks",
+                        "overdue_mode": "with_overdue",
+                        "completed_mode": "no_completed",
+                        "sort": "startTime",
+                    },
+                ),
+                ("list_tasks", {"status": "inbox"}),
+            ]
+        )
+        return self._normalize_tasks(result)
+
     def create_test_task(self) -> dict[str, Any]:
         result = self._call_tool(
             self.create_task_tool,
@@ -153,6 +181,35 @@ class AkiflowService:
                 return self._call_tool(name.removeprefix("_"), arguments)
 
             raise
+
+        raise AkiflowServiceError(
+            "Akiflow MCP is not configured. Set AKIFLOW_MCP_URL or AKIFLOW_MCP_COMMAND."
+        )
+
+    def _call_first_available_tool(self, calls: list[tuple[str, dict[str, Any]]]) -> Any:
+        errors: list[str] = []
+        for name, arguments in calls:
+            try:
+                return self._call_tool(name, arguments)
+            except AkiflowServiceError as exc:
+                message = str(exc)
+                if "Unknown tool" in message or "Invalid arguments" in message:
+                    errors.append(message)
+                    continue
+
+                raise
+
+        raise AkiflowServiceError("; ".join(errors) or "No Akiflow MCP read tool worked.")
+
+    def _mcp_request(self, method: str, params: dict[str, Any]) -> Any:
+        if self.http_url:
+            response = self._mcp_request_http(method, params)
+            self._raise_for_error(response)
+            return response.result
+        if self.command:
+            response = self._mcp_request_stdio(method, params)
+            self._raise_for_error(response)
+            return response.result
 
         raise AkiflowServiceError(
             "Akiflow MCP is not configured. Set AKIFLOW_MCP_URL or AKIFLOW_MCP_COMMAND."
@@ -202,6 +259,9 @@ class AkiflowService:
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
     def _call_tool_http(self, name: str, arguments: dict[str, Any]) -> Any:
+        return self._mcp_request("tools/call", {"name": name, "arguments": arguments})
+
+    def _mcp_request_http(self, method: str, params: dict[str, Any]) -> _McpResponse:
         session_id: str | None = None
         init_response, session_id = self._http_rpc(
             "initialize",
@@ -218,13 +278,12 @@ class AkiflowService:
         self._http_rpc("notifications/initialized", {}, request_id=None, session_id=session_id)
 
         call_response, _ = self._http_rpc(
-            "tools/call",
-            {"name": name, "arguments": arguments},
+            method,
+            params,
             request_id=2,
             session_id=session_id,
         )
-        self._raise_for_error(call_response)
-        return call_response.result
+        return call_response
 
     def _http_rpc(
         self,
@@ -270,6 +329,11 @@ class AkiflowService:
         return self._parse_rpc_body(body), next_session_id
 
     def _call_tool_stdio(self, name: str, arguments: dict[str, Any]) -> Any:
+        response = self._mcp_request_stdio("tools/call", {"name": name, "arguments": arguments})
+        self._raise_for_error(response)
+        return response.result
+
+    def _mcp_request_stdio(self, method: str, params: dict[str, Any]) -> _McpResponse:
         if not self.command:
             raise AkiflowServiceError("AKIFLOW_MCP_COMMAND is not configured.")
 
@@ -315,12 +379,11 @@ class AkiflowService:
                 {
                     "jsonrpc": "2.0",
                     "id": 2,
-                    "method": "tools/call",
-                    "params": {"name": name, "arguments": arguments},
+                    "method": method,
+                    "params": params,
                 },
             )
-            self._raise_for_error(call_response)
-            return call_response.result
+            return call_response
         finally:
             process.terminate()
             try:
@@ -374,3 +437,94 @@ class AkiflowService:
     def _raise_for_error(self, response: _McpResponse) -> None:
         if response.error:
             raise AkiflowServiceError(json.dumps(response.error))
+
+    def _normalize_tasks(self, result: Any) -> list[dict[str, Any]]:
+        raw_tasks = self._extract_task_items(result)
+        normalized: list[dict[str, Any]] = []
+
+        for item in raw_tasks:
+            if not isinstance(item, dict):
+                continue
+
+            task = item.get("task") if isinstance(item.get("task"), dict) else item
+            title = self._first_string(task, ["title", "name", "summary"])
+            if not title:
+                continue
+
+            normalized.append(
+                {
+                    "id": self._first_string(task, ["id", "_id", "uuid"]) or title,
+                    "title": title,
+                    "status": self._first_string(task, ["status"]),
+                    "priority": self._first_string(task, ["priority"]),
+                    "start": self._first_string(item, ["start", "start_datetime", "startDatetime", "datetime", "date"])
+                    or self._first_string(task, ["start", "start_datetime", "startDatetime", "datetime", "date", "planned_at"]),
+                    "deadline": self._first_string(task, ["deadline", "due_date", "dueDate"]),
+                    "duration": self._first_int(task, ["duration", "duration_minutes", "durationMinutes"]),
+                    "source": "akiflow",
+                }
+            )
+
+        return normalized
+
+    def _extract_task_items(self, value: Any) -> list[Any]:
+        if isinstance(value, list):
+            return value
+        if not isinstance(value, dict):
+            return []
+
+        for key in ["tasks", "items", "schedule", "events", "structuredContent", "data", "result", "content"]:
+            nested = value.get(key)
+            if isinstance(nested, list):
+                if key == "content":
+                    return self._extract_text_content_tasks(nested)
+                return nested
+            if isinstance(nested, dict):
+                extracted = self._extract_task_items(nested)
+                if extracted:
+                    return extracted
+
+        return []
+
+    def _extract_text_content_tasks(self, content: list[Any]) -> list[Any]:
+        tasks: list[Any] = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text":
+                continue
+
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                json_start = text.find("{")
+                json_end = text.rfind("}")
+                if json_start < 0 or json_end <= json_start:
+                    continue
+
+                try:
+                    parsed = json.loads(text[json_start : json_end + 1])
+                except json.JSONDecodeError:
+                    continue
+
+            tasks.extend(self._extract_task_items(parsed))
+
+        return tasks
+
+    def _first_string(self, item: dict[str, Any], keys: list[str]) -> str | None:
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+        return None
+
+    def _first_int(self, item: dict[str, Any], keys: list[str]) -> int | None:
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, int):
+                return value
+
+        return None

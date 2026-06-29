@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import {
   AKIFLOW_LOGIN_URL,
+  type AkiflowTask,
   type DashboardTask,
   type ScoredTask,
   createAkiflowTestTask,
   generateAkiflowCommand,
+  getAkiflowToday,
   getHealth,
   getSample,
   scoreTasks,
@@ -61,6 +63,10 @@ function App() {
   const [scoringError, setScoringError] = useState("");
   const [akiflowTestStatus, setAkiflowTestStatus] = useState("");
   const [isCreatingAkiflowTask, setIsCreatingAkiflowTask] = useState(false);
+  const [akiflowTasks, setAkiflowTasks] = useState<AkiflowTask[]>([]);
+  const [isLoadingAkiflowTasks, setIsLoadingAkiflowTasks] = useState(false);
+  const [akiflowTasksError, setAkiflowTasksError] = useState("");
+  const [hasLoadedAkiflowTasks, setHasLoadedAkiflowTasks] = useState(false);
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -138,6 +144,22 @@ function App() {
     window.location.href = AKIFLOW_LOGIN_URL;
   }
 
+  async function loadAkiflowToday() {
+    setAkiflowTasksError("");
+    setIsLoadingAkiflowTasks(true);
+    setHasLoadedAkiflowTasks(true);
+
+    try {
+      const tasks = await getAkiflowToday();
+      setAkiflowTasks(tasks);
+    } catch (err) {
+      setAkiflowTasks([]);
+      setAkiflowTasksError(err instanceof Error ? err.message : "Could not load Akiflow tasks");
+    } finally {
+      setIsLoadingAkiflowTasks(false);
+    }
+  }
+
   const scoreByTaskKey = useMemo(() => {
     const map = new Map<string, ScoredTask>();
 
@@ -200,11 +222,41 @@ function App() {
         </button>
         <button onClick={copyCommand}>Copy Akiflow Command</button>
         <button onClick={connectAkiflow}>Connect Akiflow</button>
+        <button onClick={loadAkiflowToday} disabled={isLoadingAkiflowTasks}>
+          Load Akiflow Today
+        </button>
         <button onClick={createTestTask} disabled={isCreatingAkiflowTask}>
           {isCreatingAkiflowTask ? "Creating..." : "Create Test Task"}
         </button>
       </section>
       {akiflowTestStatus ? <p className="inline-status">{akiflowTestStatus}</p> : null}
+
+      <section className="panel akiflow-panel">
+        <div className="panel-heading">
+          <h2>Akiflow Today</h2>
+        </div>
+        {isLoadingAkiflowTasks ? <p className="muted">Loading Akiflow tasks...</p> : null}
+        {akiflowTasksError ? <pre className="inline-error">{akiflowTasksError}</pre> : null}
+        {!isLoadingAkiflowTasks && !akiflowTasksError && hasLoadedAkiflowTasks && !akiflowTasks.length ? (
+          <p className="muted">No Akiflow tasks found for today.</p>
+        ) : null}
+        {akiflowTasks.length ? (
+          <ul className="akiflow-task-list">
+            {akiflowTasks.map((task) => (
+              <li key={task.id}>
+                <strong>{task.title}</strong>
+                <p>
+                  {task.start ?? "Unscheduled"}
+                  {task.duration ? ` - ${task.duration} min` : ""}
+                  {task.priority ? ` - ${task.priority}` : ""}
+                  {task.status ? ` - ${task.status}` : ""}
+                  {task.deadline ? ` - Due ${task.deadline}` : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
 
       <section className="panel recommendation-panel">
         <div className="panel-heading">

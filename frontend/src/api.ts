@@ -21,6 +21,17 @@ export type ScoredTask = {
   [key: string]: unknown;
 };
 
+export type AkiflowTask = {
+  id: string;
+  title: string;
+  status?: string;
+  priority?: string;
+  start?: string;
+  deadline?: string;
+  duration?: number;
+  source: "akiflow";
+};
+
 export async function getHealth() {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 3000);
@@ -118,4 +129,23 @@ export async function createAkiflowTestTask() {
   }
 
   return data;
+}
+
+export async function getAkiflowToday(): Promise<AkiflowTask[]> {
+  const res = await fetch(`${API_BASE}/akiflow/today`, { mode: "cors" });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  if (!data || !Array.isArray(data.tasks)) return [];
+  return data.tasks.filter(isAkiflowTask);
+}
+
+function isAkiflowTask(value: unknown): value is AkiflowTask {
+  if (!value || typeof value !== "object") return false;
+
+  const task = value as { id?: unknown; title?: unknown; source?: unknown };
+  return typeof task.id === "string" && typeof task.title === "string" && task.source === "akiflow";
 }

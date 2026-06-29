@@ -132,6 +132,14 @@ def akiflow_test_task() -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/akiflow/today")
+def akiflow_today() -> dict:
+    try:
+        return {"tasks": akiflow_service.get_today_tasks()}
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.post("/inbox/review", response_model=InboxReviewResponse)
 def inbox_review_endpoint(req: InboxReviewRequest) -> InboxReviewResponse:
     return review_inbox(req)
