@@ -163,6 +163,24 @@ h2 {
   font-size: 13px;
 }
 
+.akiflow-task-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.akiflow-task-row > div {
+  min-width: 0;
+}
+
+.small-action {
+  border-radius: 8px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
 .recommendation-content {
   display: grid;
   gap: 8px;
@@ -325,6 +343,10 @@ textarea {
 
   .task-row {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .akiflow-task-row {
     flex-direction: column;
   }
 }

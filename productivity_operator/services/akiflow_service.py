@@ -162,6 +162,19 @@ class AkiflowService:
             "result": result,
         }
 
+    def complete_task(self, task_id: str) -> dict[str, Any]:
+        if not task_id:
+            raise AkiflowServiceError("task_id is required.")
+
+        result = self._call_tool("complete_task", {"task_id": task_id})
+        return {
+            "ok": True,
+            "transport": self._transport_name(),
+            "tool": "complete_task",
+            "task_id": task_id,
+            "result": result,
+        }
+
     def _transport_name(self) -> str:
         if self.http_url:
             return "http"

@@ -42,6 +42,10 @@ class CommandResponse(BaseModel):
     plan: DayPlanResponse
 
 
+class CompleteAkiflowTaskRequest(BaseModel):
+    task_id: str
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard() -> str:
     index_path = Path(__file__).parent / "web" / "index.html"
@@ -136,6 +140,14 @@ def akiflow_test_task() -> dict:
 def akiflow_today() -> dict:
     try:
         return {"tasks": akiflow_service.get_today_tasks()}
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/akiflow/complete-task")
+def akiflow_complete_task(req: CompleteAkiflowTaskRequest) -> dict:
+    try:
+        return akiflow_service.complete_task(req.task_id)
     except AkiflowServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

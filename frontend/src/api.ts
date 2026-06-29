@@ -143,6 +143,22 @@ export async function getAkiflowToday(): Promise<AkiflowTask[]> {
   return data.tasks.filter(isAkiflowTask);
 }
 
+export async function completeAkiflowTask(taskId: string) {
+  const res = await fetch(`${API_BASE}/akiflow/complete-task`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task_id: taskId }),
+    mode: "cors",
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data;
+}
+
 function isAkiflowTask(value: unknown): value is AkiflowTask {
   if (!value || typeof value !== "object") return false;
 

@@ -5,6 +5,7 @@ import {
   type AkiflowTask,
   type DashboardTask,
   type ScoredTask,
+  completeAkiflowTask,
   createAkiflowTestTask,
   generateAkiflowCommand,
   getAkiflowToday,
@@ -67,6 +68,8 @@ function App() {
   const [isLoadingAkiflowTasks, setIsLoadingAkiflowTasks] = useState(false);
   const [akiflowTasksError, setAkiflowTasksError] = useState("");
   const [hasLoadedAkiflowTasks, setHasLoadedAkiflowTasks] = useState(false);
+  const [completingAkiflowTaskId, setCompletingAkiflowTaskId] = useState<string | null>(null);
+  const [akiflowCompleteStatus, setAkiflowCompleteStatus] = useState("");
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -160,6 +163,24 @@ function App() {
     }
   }
 
+  async function completeTask(taskId: string) {
+    setAkiflowTasksError("");
+    setAkiflowCompleteStatus("");
+    setCompletingAkiflowTaskId(taskId);
+
+    try {
+      await completeAkiflowTask(taskId);
+      setAkiflowCompleteStatus("Completed Akiflow task.");
+      const tasks = await getAkiflowToday();
+      setAkiflowTasks(tasks);
+      setHasLoadedAkiflowTasks(true);
+    } catch (err) {
+      setAkiflowTasksError(err instanceof Error ? err.message : "Could not complete Akiflow task");
+    } finally {
+      setCompletingAkiflowTaskId(null);
+    }
+  }
+
   const scoreByTaskKey = useMemo(() => {
     const map = new Map<string, ScoredTask>();
 
@@ -236,6 +257,7 @@ function App() {
           <h2>Akiflow Today</h2>
         </div>
         {isLoadingAkiflowTasks ? <p className="muted">Loading Akiflow tasks...</p> : null}
+        {akiflowCompleteStatus ? <p className="inline-status">{akiflowCompleteStatus}</p> : null}
         {akiflowTasksError ? <pre className="inline-error">{akiflowTasksError}</pre> : null}
         {!isLoadingAkiflowTasks && !akiflowTasksError && hasLoadedAkiflowTasks && !akiflowTasks.length ? (
           <p className="muted">No Akiflow tasks found for today.</p>
@@ -244,14 +266,25 @@ function App() {
           <ul className="akiflow-task-list">
             {akiflowTasks.map((task) => (
               <li key={task.id}>
-                <strong>{task.title}</strong>
-                <p>
-                  {task.start ?? "Unscheduled"}
-                  {task.duration ? ` - ${task.duration} min` : ""}
-                  {task.priority ? ` - ${task.priority}` : ""}
-                  {task.status ? ` - ${task.status}` : ""}
-                  {task.deadline ? ` - Due ${task.deadline}` : ""}
-                </p>
+                <div className="akiflow-task-row">
+                  <div>
+                    <strong>{task.title}</strong>
+                    <p>
+                      {task.start ?? "Unscheduled"}
+                      {task.duration ? ` - ${task.duration} min` : ""}
+                      {task.priority ? ` - ${task.priority}` : ""}
+                      {task.status ? ` - ${task.status}` : ""}
+                      {task.deadline ? ` - Due ${task.deadline}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    className="small-action"
+                    onClick={() => completeTask(task.id)}
+                    disabled={completingAkiflowTaskId === task.id || isLoadingAkiflowTasks}
+                  >
+                    {completingAkiflowTaskId === task.id ? "Completing..." : "Complete"}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
