@@ -33,6 +33,26 @@ export type AnalyzedTask = DashboardTask & {
   analysis?: TaskAnalysis;
 };
 
+export type SimulationTask = DashboardTask & {
+  score?: number;
+  reasons?: string[];
+  analysis?: TaskAnalysis;
+  defer_reason?: string;
+};
+
+export type PlanningSimulation = {
+  current_plan: SimulationTask[];
+  recommended_plan: SimulationTask[];
+  deferred_tasks: SimulationTask[];
+  remaining_minutes: number;
+  explanation: string;
+  changes_summary: {
+    recommended_count: number;
+    deferred_count: number;
+    would_modify_akiflow: boolean;
+  };
+};
+
 export async function getHealth() {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 3000);
@@ -155,4 +175,15 @@ export async function analyzeTasks(payload: unknown): Promise<AnalyzedTask[]> {
   }
 
   return extractAnalyzedTasks(data);
+}
+
+export async function getPlanningSimulation(): Promise<PlanningSimulation> {
+  const res = await fetch(`${API_BASE}/planning/simulation`, { mode: "cors" });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data as PlanningSimulation;
 }

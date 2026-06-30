@@ -3,10 +3,12 @@ import "./App.css";
 import {
   type AnalyzedTask,
   type DashboardTask,
+  type PlanningSimulation,
   type ScoredTask,
   analyzeTasks,
   generateAkiflowCommand,
   getHealth,
+  getPlanningSimulation,
   getSample,
   scoreTasks,
 } from "./api";
@@ -58,10 +60,13 @@ function App() {
   const [plan, setPlan] = useState<PlanResult["plan"] | null>(null);
   const [scoredTasks, setScoredTasks] = useState<ScoredTask[]>([]);
   const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
+  const [simulation, setSimulation] = useState<PlanningSimulation | null>(null);
   const [isScoringTasks, setIsScoringTasks] = useState(false);
   const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
+  const [isLoadingSimulation, setIsLoadingSimulation] = useState(false);
   const [scoringError, setScoringError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [simulationError, setSimulationError] = useState("");
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -82,6 +87,7 @@ function App() {
     setError("");
     setScoringError("");
     setAnalysisError("");
+    setSimulationError("");
     const sample = await getSample();
     setInput(JSON.stringify(sample, null, 2));
   }
@@ -90,6 +96,7 @@ function App() {
     setError("");
     setScoringError("");
     setAnalysisError("");
+    setSimulationError("");
 
     try {
       const payload = JSON.parse(input) as DayPlanPayload;
@@ -98,6 +105,7 @@ function App() {
       setCommand(result.command);
       setPlan(result.plan);
       setAnalyzedTasks([]);
+      setSimulation(null);
 
       if (payload.tasks?.length) {
         setIsScoringTasks(true);
@@ -139,6 +147,22 @@ function App() {
       setAnalysisError(err instanceof Error ? err.message : "Task analysis failed");
     } finally {
       setIsAnalyzingTasks(false);
+    }
+  }
+
+  async function previewOptimizedDay() {
+    setSimulationError("");
+    setError("");
+    setIsLoadingSimulation(true);
+
+    try {
+      const result = await getPlanningSimulation();
+      setSimulation(result);
+    } catch (err) {
+      setSimulation(null);
+      setSimulationError(err instanceof Error ? err.message : "Simulation failed");
+    } finally {
+      setIsLoadingSimulation(false);
     }
   }
 
@@ -201,6 +225,7 @@ function App() {
       {error && <pre className="error">{error}</pre>}
       {scoringError && <p className="inline-error">Task scoring failed. The dashboard is still usable.</p>}
       {analysisError && <p className="inline-error">{analysisError}</p>}
+      {simulationError && <p className="inline-error">{simulationError}</p>}
 
       <section className="actions">
         <button onClick={loadSample}>Load Sample Day</button>
@@ -208,7 +233,33 @@ function App() {
           Plan Today
         </button>
         <button onClick={analyzeCurrentTasks}>Analyze Tasks</button>
+        <button onClick={previewOptimizedDay}>Preview Optimized Day</button>
         <button onClick={copyCommand}>Copy Akiflow Command</button>
+      </section>
+
+      <section className="panel simulation-panel">
+        <div className="panel-heading">
+          <h2>Simulation Mode</h2>
+          {isLoadingSimulation ? <span className="simulation-status">Loading simulation...</span> : null}
+        </div>
+        {simulation ? (
+          <div className="simulation-content">
+            <div className="simulation-summary">
+              <span>Recommended: {simulation.changes_summary.recommended_count}</span>
+              <span>Deferred: {simulation.changes_summary.deferred_count}</span>
+              <span>Remaining: {simulation.remaining_minutes} min</span>
+              <span>{simulation.changes_summary.would_modify_akiflow ? "Would modify Akiflow" : "Preview only"}</span>
+            </div>
+            <p className="simulation-explanation">{simulation.explanation}</p>
+            <div className="simulation-columns">
+              <SimulationList title="Current plan" tasks={simulation.current_plan} />
+              <SimulationList title="Recommended plan" tasks={simulation.recommended_plan} />
+              <SimulationList title="Deferred tasks" tasks={simulation.deferred_tasks} />
+            </div>
+          </div>
+        ) : (
+          <p className="muted">Preview the optimized day before applying any changes.</p>
+        )}
       </section>
 
       <section className="panel analysis-panel">
@@ -343,6 +394,30 @@ function App() {
         </div>
       </section>
     </main>
+  );
+}
+
+function SimulationList({ title, tasks }: { title: string; tasks: DashboardTask[] }) {
+  return (
+    <div className="simulation-list">
+      <h3>{title}</h3>
+      {tasks.length ? (
+        <ol>
+          {tasks.slice(0, 6).map((task, index) => (
+            <li key={`${safeTaskTitle(task.title)}-${index}`}>
+              <strong>{safeTaskTitle(task.title)}</strong>
+              <p>
+                {typeof task.duration === "number" ? `${task.duration} min` : "No duration"}
+                {typeof task.score === "number" ? ` - Score: ${task.score}` : ""}
+                {typeof task.defer_reason === "string" ? ` - ${task.defer_reason}` : ""}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="muted">None</p>
+      )}
+    </div>
   );
 }
 

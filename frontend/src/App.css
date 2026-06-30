@@ -136,6 +136,10 @@ h2 {
   border-color: #cfe0ec;
 }
 
+.simulation-panel {
+  border-color: #d8d0f0;
+}
+
 .recommendation-content {
   display: grid;
   gap: 8px;
@@ -200,7 +204,8 @@ h2 {
 
 .score-badge,
 .scoring-status,
-.analysis-status {
+.analysis-status,
+.simulation-status {
   border-radius: 999px;
   padding: 5px 9px;
   font-size: 12px;
@@ -266,8 +271,62 @@ h2 {
   margin: 8px 0 0;
 }
 
+.simulation-content {
+  display: grid;
+  gap: 14px;
+}
+
+.simulation-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.simulation-summary span {
+  background: #eef2f8;
+  border-radius: 999px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 9px;
+}
+
+.simulation-explanation {
+  color: #5a6b89;
+  font-weight: 700;
+  margin: 0;
+}
+
+.simulation-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.simulation-list h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.simulation-list ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.simulation-list li {
+  margin-bottom: 10px;
+}
+
+.simulation-list p {
+  color: #5a6b89;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 4px 0 0;
+}
+
 .scoring-status,
-.analysis-status {
+.analysis-status,
+.simulation-status {
   background: #fff7dd;
   color: #8a5a00;
 }
@@ -332,5 +391,9 @@ textarea {
   .task-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .simulation-columns {
+    grid-template-columns: 1fr;
   }
 }

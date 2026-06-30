@@ -22,8 +22,10 @@ from productivity_operator.models import (
 from productivity_operator.planning import (
     PlanningContext,
     PlanningContextBuilder,
+    PlanningSimulation,
     ScheduleOptimizer,
     ScheduleRecommendation,
+    build_planning_simulation,
 )
 from productivity_operator.planner import PlannerEngine
 from productivity_operator.scoring import TaskScorer
@@ -85,6 +87,13 @@ def planning_context() -> PlanningContext:
 def planning_recommendation() -> ScheduleRecommendation:
     context = planning_context_builder.build()
     return schedule_optimizer.optimize(context)
+
+
+@app.get("/planning/simulation", response_model=PlanningSimulation)
+def planning_simulation() -> PlanningSimulation:
+    context = planning_context_builder.build()
+    recommendation = schedule_optimizer.optimize(context)
+    return build_planning_simulation(context, recommendation)
 
 
 @app.post("/plan/day", response_model=DayPlanResponse)
