@@ -4,6 +4,7 @@ import {
   type ApplyPlanResponse,
   type AnalyzedTask,
   type DashboardTask,
+  type OperatorTask,
   type PlanningSimulation,
   type ScoredTask,
   analyzeTasks,
@@ -13,9 +14,11 @@ import {
   getPlanningSimulation,
   getSample,
   scoreTasks,
+  syncTasks,
 } from "./api";
 
 const SORT_FOCUS_BY_SCORE = true;
+const API_BASE = "http://localhost:8000";
 
 type ScheduledFocusItem = {
   id?: string | null;
@@ -64,14 +67,18 @@ function App() {
   const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
   const [simulation, setSimulation] = useState<PlanningSimulation | null>(null);
   const [applyResult, setApplyResult] = useState<ApplyPlanResponse | null>(null);
+  const [syncedTasks, setSyncedTasks] = useState<OperatorTask[]>([]);
+  const [syncedCount, setSyncedCount] = useState<number | null>(null);
   const [isScoringTasks, setIsScoringTasks] = useState(false);
   const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
   const [isLoadingSimulation, setIsLoadingSimulation] = useState(false);
   const [isApplyingPlan, setIsApplyingPlan] = useState(false);
+  const [isSyncingTasks, setIsSyncingTasks] = useState(false);
   const [scoringError, setScoringError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [simulationError, setSimulationError] = useState("");
   const [applyError, setApplyError] = useState("");
+  const [syncError, setSyncError] = useState("");
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -94,6 +101,7 @@ function App() {
     setAnalysisError("");
     setSimulationError("");
     setApplyError("");
+    setSyncError("");
     const sample = await getSample();
     setInput(JSON.stringify(sample, null, 2));
   }
@@ -104,6 +112,7 @@ function App() {
     setAnalysisError("");
     setSimulationError("");
     setApplyError("");
+    setSyncError("");
 
     try {
       const payload = JSON.parse(input) as DayPlanPayload;
@@ -173,6 +182,29 @@ function App() {
     } finally {
       setIsLoadingSimulation(false);
     }
+  }
+
+  async function syncTaskRegistry() {
+    setSyncError("");
+    setError("");
+    setIsSyncingTasks(true);
+
+    try {
+      const today = localDateString(new Date());
+      const result = await syncTasks(today, today);
+      setSyncedTasks(result.tasks);
+      setSyncedCount(result.synced);
+    } catch (err) {
+      setSyncedTasks([]);
+      setSyncedCount(null);
+      setSyncError(err instanceof Error ? err.message : "Task sync failed");
+    } finally {
+      setIsSyncingTasks(false);
+    }
+  }
+
+  function connectAkiflow() {
+    window.location.href = `${API_BASE}/akiflow/login`;
   }
 
   async function previewApplyPlan() {
@@ -268,6 +300,7 @@ function App() {
       {analysisError && <p className="inline-error">{analysisError}</p>}
       {simulationError && <p className="inline-error">{simulationError}</p>}
       {applyError && <p className="inline-error">{applyError}</p>}
+      {syncError && <p className="inline-error">{syncError}</p>}
 
       <section className="actions">
         <button onClick={loadSample}>Load Sample Day</button>
@@ -275,10 +308,38 @@ function App() {
           Plan Today
         </button>
         <button onClick={analyzeCurrentTasks}>Analyze Tasks</button>
+        <button onClick={connectAkiflow}>Connect Akiflow</button>
+        <button onClick={syncTaskRegistry}>Sync Tasks</button>
         <button onClick={previewOptimizedDay}>Preview Optimized Day</button>
         <button onClick={previewApplyPlan}>Apply Plan</button>
         {applyResult?.dry_run ? <button onClick={confirmApplyPlan}>Confirm Apply to Akiflow</button> : null}
         <button onClick={copyCommand}>Copy Akiflow Command</button>
+      </section>
+
+      <section className="panel registry-panel">
+        <div className="panel-heading">
+          <h2>Task Registry</h2>
+          {isSyncingTasks ? <span className="simulation-status">Syncing tasks...</span> : null}
+        </div>
+        {syncedCount !== null ? (
+          <p className="simulation-explanation">Synced {syncedCount} Akiflow task(s).</p>
+        ) : (
+          <p className="muted">Sync Akiflow tasks to resolve task ids before applying a plan.</p>
+        )}
+        {syncedTasks.length ? (
+          <div className="registry-list">
+            {syncedTasks.slice(0, 10).map((task) => (
+              <div className="registry-row" key={task.task_id}>
+                <code>{task.task_id}</code>
+                <strong>{task.title}</strong>
+                <span>{task.project_name ?? "No project"}</span>
+                <span>{typeof task.duration === "number" ? `${task.duration} min` : "No duration"}</span>
+                <span>{task.priority ?? "No priority"}</span>
+                <span>{task.scheduled_start ? formatDateTime(task.scheduled_start) : "Unscheduled"}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="panel simulation-panel">
@@ -326,8 +387,8 @@ function App() {
             {applyResult.actions.length ? (
               <ol className="apply-actions">
                 {applyResult.actions.slice(0, 8).map((action, index) => (
-                  <li key={`${action.type ?? "action"}-${action.title ?? index}`}>
-                    <strong>{formatActionType(action.type)}</strong>
+                  <li key={`${action.action ?? action.type ?? "action"}-${action.title ?? index}`}>
+                    <strong>{formatActionType(action.action ?? action.type)}</strong>
                     <span>{action.title ?? "Untitled task"}</span>
                     {action.start_datetime ? <span>{formatDateTime(action.start_datetime)}</span> : null}
                     {typeof action.duration === "number" ? <span>{action.duration} min</span> : null}
@@ -514,8 +575,8 @@ function ActionGroup({ title, actions }: { title: string; actions: ApplyPlanResp
       <h3>{title}</h3>
       <ol className="apply-actions">
         {actions.slice(0, 8).map((action, index) => (
-          <li key={`${title}-${action.type ?? "action"}-${action.title ?? index}`}>
-            <strong>{formatActionType(action.type)}</strong>
+          <li key={`${title}-${action.action ?? action.type ?? "action"}-${action.title ?? index}`}>
+            <strong>{formatActionType(action.action ?? action.type)}</strong>
             <span>{action.title ?? "Untitled task"}</span>
             {action.start_datetime ? <span>{formatDateTime(action.start_datetime)}</span> : null}
             {typeof action.duration === "number" ? <span>{action.duration} min</span> : null}
@@ -585,6 +646,13 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function localDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {

@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from productivity_operator.analysis import TaskAnalyzer
@@ -32,6 +32,8 @@ from productivity_operator.planning import (
 )
 from productivity_operator.planner import PlannerEngine
 from productivity_operator.scoring import TaskScorer
+from productivity_operator.services import AkiflowServiceError
+from productivity_operator.task_registry import OperatorTask, TaskRegistry
 
 app = FastAPI(title="Operator", version="0.3.0")
 
@@ -47,7 +49,8 @@ settings = load_settings()
 planning_context_builder = PlanningContextBuilder(source=settings.data_source)
 planner = PlannerEngine()
 schedule_optimizer = ScheduleOptimizer()
-apply_plan_service = ApplyPlanService(planning_context_builder.akiflow_service)
+task_registry = TaskRegistry()
+apply_plan_service = ApplyPlanService(planning_context_builder.akiflow_service, task_registry)
 task_scorer = TaskScorer()
 task_analyzer = TaskAnalyzer()
 
@@ -59,6 +62,16 @@ class CommandResponse(BaseModel):
 
 class AnalyzeTasksRequest(BaseModel):
     tasks: list[dict[str, Any]]
+
+
+class SyncTasksRequest(BaseModel):
+    start_date: str
+    end_date: str
+
+
+class SyncTasksResponse(BaseModel):
+    synced: int
+    tasks: list[OperatorTask]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -82,9 +95,57 @@ def manual() -> dict[str, str]:
     return {"manual": PRODUCTIVITY_MANUAL}
 
 
+@app.get("/akiflow/login")
+def akiflow_login() -> RedirectResponse:
+    try:
+        return RedirectResponse(planning_context_builder.akiflow_service.authorization_url())
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/akiflow/oauth/callback", response_class=HTMLResponse)
+def akiflow_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> str:
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing Akiflow OAuth code or state.")
+
+    try:
+        planning_context_builder.akiflow_service.complete_oauth_callback(code, state)
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return """
+    <!doctype html>
+    <html>
+      <head><title>Akiflow Connected</title></head>
+      <body>
+        <h1>Akiflow connected</h1>
+        <p>You can return to Operator and sync tasks.</p>
+      </body>
+    </html>
+    """
+
+
 @app.get("/planning/context", response_model=PlanningContext)
 def planning_context() -> PlanningContext:
     return planning_context_builder.build()
+
+
+@app.post("/tasks/sync", response_model=SyncTasksResponse)
+def sync_tasks(req: SyncTasksRequest) -> SyncTasksResponse:
+    try:
+        tasks = planning_context_builder.akiflow_service.sync_tasks(req.start_date, req.end_date)
+    except AkiflowServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    task_registry.load_from_akiflow(tasks)
+    return SyncTasksResponse(synced=len(task_registry.all()), tasks=task_registry.all())
+
+
+@app.get("/tasks/registry", response_model=list[OperatorTask])
+def tasks_registry() -> list[OperatorTask]:
+    return task_registry.all()
 
 
 @app.get("/planning/recommendation", response_model=ScheduleRecommendation)

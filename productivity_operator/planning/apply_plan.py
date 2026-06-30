@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from productivity_operator.planning.simulation import PlanningSimulation
 from productivity_operator.services import AkiflowService, AkiflowServiceError
+from productivity_operator.task_registry import TaskRegistry
 
 
 class ApplyPlanResponse(BaseModel):
@@ -27,8 +28,9 @@ class ApplyPlanRequest(BaseModel):
 class ApplyPlanService:
     """Safe dry-run apply layer for optimized plans."""
 
-    def __init__(self, akiflow_service: AkiflowService) -> None:
+    def __init__(self, akiflow_service: AkiflowService, task_registry: TaskRegistry | None = None) -> None:
         self.akiflow_service = akiflow_service
+        self.task_registry = task_registry
 
     def apply(
         self,
@@ -105,17 +107,18 @@ class ApplyPlanService:
         skipped_actions: list[dict[str, Any]] = []
 
         for task in simulation.recommended_plan:
-            task_id = task.get("id")
             title = str(task.get("title") or "Untitled task")
             duration = self._duration_minutes(task)
+            task_id, skip_reason = self._resolve_task_id(task)
 
-            if not isinstance(task_id, str) or not task_id.strip():
+            if skip_reason:
                 skipped_actions.append(
                     {
+                        "action": "schedule_task",
                         "type": "schedule_task",
                         "title": title,
                         "duration": duration,
-                        "reason": "Missing task_id; cannot safely schedule an existing Akiflow task.",
+                        "reason": skip_reason,
                     }
                 )
                 cursor += timedelta(minutes=duration)
@@ -124,6 +127,7 @@ class ApplyPlanService:
             start_datetime = cursor.isoformat()
             actions.append(
                 {
+                    "action": "schedule_task",
                     "type": "schedule_task",
                     "task_id": task_id,
                     "title": title,
@@ -135,6 +139,24 @@ class ApplyPlanService:
             cursor += timedelta(minutes=duration)
 
         return actions, skipped_actions
+
+    def _resolve_task_id(self, task: dict[str, Any]) -> tuple[str | None, str | None]:
+        raw_task_id = task.get("task_id") or task.get("id")
+        if isinstance(raw_task_id, str) and raw_task_id.strip():
+            return raw_task_id, None
+
+        title = task.get("title")
+        if not isinstance(title, str) or not title.strip():
+            return None, "Missing task_id and title; cannot resolve an existing Akiflow task."
+        if self.task_registry is None:
+            return None, "No task registry is available."
+
+        matches = self.task_registry.find_by_title(title)
+        if not matches:
+            return None, "No matching task in registry"
+        if len(matches) > 1:
+            return None, "Multiple matching tasks in registry"
+        return matches[0].task_id, None
 
     def _duration_minutes(self, task: dict[str, Any]) -> int:
         value = task.get("duration")

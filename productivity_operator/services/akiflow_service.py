@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+import secrets
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from queue import Empty, Queue
 from typing import Any
+
+from productivity_operator.task_registry import OperatorTask
 
 
 class AkiflowServiceError(RuntimeError):
@@ -31,6 +37,78 @@ class AkiflowService:
         self.command = os.getenv("AKIFLOW_MCP_COMMAND")
         self.bearer_token = os.getenv("AKIFLOW_MCP_BEARER_TOKEN")
         self.timeout_seconds = float(os.getenv("AKIFLOW_MCP_TIMEOUT_SECONDS", "10"))
+        self.authorization_endpoint = os.getenv("AKIFLOW_AUTHORIZATION_ENDPOINT", "https://web.akiflow.com/oauth/authorize")
+        self.token_endpoint = os.getenv("AKIFLOW_TOKEN_ENDPOINT", "https://web.akiflow.com/oauth/token")
+        self.registration_endpoint = os.getenv("AKIFLOW_REGISTRATION_ENDPOINT", "https://web.akiflow.com/oauth/register")
+        self.public_base_url = os.getenv("OPERATOR_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
+        self.client_id = os.getenv("AKIFLOW_OAUTH_CLIENT_ID")
+        self._oauth_states: dict[str, str] = {}
+
+    def authorization_url(self) -> str:
+        client_id = self._client_id()
+        code_verifier = secrets.token_urlsafe(64)
+        state = secrets.token_urlsafe(24)
+        self._oauth_states[state] = code_verifier
+
+        query = urllib.parse.urlencode(
+            {
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": self.redirect_uri,
+                "scope": "mcp:read mcp:write",
+                "state": state,
+                "code_challenge": self._code_challenge(code_verifier),
+                "code_challenge_method": "S256",
+            }
+        )
+        return f"{self.authorization_endpoint}?{query}"
+
+    def complete_oauth_callback(self, code: str, state: str) -> dict[str, Any]:
+        code_verifier = self._oauth_states.pop(state, None)
+        if not code_verifier:
+            raise AkiflowServiceError("OAuth state was not recognized. Please start Akiflow login again.")
+
+        payload = urllib.parse.urlencode(
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": self.redirect_uri,
+                "client_id": self._client_id(),
+                "code_verifier": code_verifier,
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.token_endpoint,
+            data=payload,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Operator/0.3",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                token_response = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # pragma: no cover - depends on Akiflow OAuth availability.
+            raise AkiflowServiceError(f"Akiflow OAuth token exchange failed: {exc}") from exc
+
+        access_token = token_response.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise AkiflowServiceError("Akiflow OAuth token response did not include an access token.")
+
+        self.bearer_token = access_token
+        return {
+            "ok": True,
+            "token_type": token_response.get("token_type"),
+            "scope": token_response.get("scope"),
+            "expires_in": token_response.get("expires_in"),
+        }
+
+    @property
+    def redirect_uri(self) -> str:
+        return f"{self.public_base_url.rstrip('/')}/akiflow/oauth/callback"
 
     def get_today_tasks(self) -> list[dict[str, Any]]:
         today = date.today().isoformat()
@@ -51,6 +129,20 @@ class AkiflowService:
             ]
         )
         return self._normalize_tasks(result)
+
+    def sync_tasks(self, start_date: str, end_date: str) -> list[OperatorTask]:
+        result = self._call_tool(
+            "get_schedule",
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "entities": "tasks",
+                "completed_mode": "no_completed",
+                "overdue_mode": "with_overdue",
+                "sort": "startTime",
+            },
+        )
+        return self._normalize_operator_tasks(result)
 
     def get_today_schedule(self) -> list[dict[str, Any]]:
         today = date.today().isoformat()
@@ -118,6 +210,46 @@ class AkiflowService:
             return response.result
 
         raise AkiflowServiceError("Akiflow MCP is not configured. Set AKIFLOW_MCP_URL or AKIFLOW_MCP_COMMAND.")
+
+    def _client_id(self) -> str:
+        if self.client_id:
+            return self.client_id
+
+        payload = {
+            "client_name": "Operator",
+            "redirect_uris": [self.redirect_uri],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+            "scope": "mcp:read mcp:write",
+        }
+        request = urllib.request.Request(
+            self.registration_endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Operator/0.3",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                registration = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # pragma: no cover - depends on Akiflow OAuth availability.
+            raise AkiflowServiceError(f"Akiflow OAuth client registration failed: {exc}") from exc
+
+        client_id = registration.get("client_id")
+        if not isinstance(client_id, str) or not client_id:
+            raise AkiflowServiceError("Akiflow OAuth registration did not return a client_id.")
+
+        self.client_id = client_id
+        return client_id
+
+    def _code_challenge(self, code_verifier: str) -> str:
+        digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+        return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
     def _call_first_available_tool(self, calls: list[tuple[str, dict[str, Any]]]) -> Any:
         errors: list[str] = []
@@ -312,6 +444,49 @@ class AkiflowService:
 
         return normalized
 
+    def _normalize_operator_tasks(self, result: Any) -> list[OperatorTask]:
+        synced_at = datetime.now().replace(microsecond=0)
+        normalized: list[OperatorTask] = []
+        for item in self._extract_items(result):
+            if not isinstance(item, dict):
+                continue
+
+            task = item.get("task") if isinstance(item.get("task"), dict) else item
+            task_id = self._first_string(task, ["id", "_id", "uuid"])
+            title = self._first_string(task, ["title", "name", "summary"])
+            if not task_id or not title:
+                continue
+
+            scheduled_start = (
+                self._first_string(item, ["start", "start_datetime", "startDatetime", "datetime", "date"])
+                or self._first_string(task, ["start", "start_datetime", "startDatetime", "datetime", "date", "planned_at"])
+            )
+            project = task.get("project") if isinstance(task.get("project"), dict) else {}
+
+            normalized.append(
+                OperatorTask(
+                    task_id=task_id,
+                    title=title,
+                    description=self._first_string(task, ["description", "notes", "body"]),
+                    project_id=self._first_string(task, ["project_id", "projectId"])
+                    or self._first_string(project, ["id", "_id", "uuid"]),
+                    project_name=self._first_string(task, ["project_name", "projectName"])
+                    or self._first_string(project, ["name", "title"]),
+                    duration=self._first_int(task, ["duration", "duration_minutes", "durationMinutes"]),
+                    priority=self._first_string(task, ["priority"]),
+                    tags=self._first_string_list(task, ["tags", "labels"]),
+                    links=self._first_string_list(task, ["links", "urls"]),
+                    status=self._first_string(task, ["status"]),
+                    scheduled_start=scheduled_start,
+                    scheduled_date=self._date_part(scheduled_start),
+                    deadline=self._first_string(task, ["deadline", "due_date", "dueDate"]),
+                    done=self._first_bool(task, ["done", "completed", "is_completed", "isCompleted"]),
+                    last_synced_at=synced_at,
+                )
+            )
+
+        return normalized
+
     def _normalize_schedule(self, result: Any) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for item in self._extract_items(result):
@@ -405,3 +580,22 @@ class AkiflowService:
             if isinstance(value, str) and value.isdigit():
                 return int(value)
         return None
+
+    def _first_bool(self, item: dict[str, Any], keys: list[str]) -> bool:
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, bool):
+                return value
+        return False
+
+    def _first_string_list(self, item: dict[str, Any], keys: list[str]) -> list[str]:
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, list):
+                return [str(entry) for entry in value if str(entry)]
+        return []
+
+    def _date_part(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        return value[:10]

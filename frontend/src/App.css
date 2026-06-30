@@ -147,6 +147,10 @@ h2 {
   border-color: #d8d0f0;
 }
 
+.registry-panel {
+  border-color: #d7e2c6;
+}
+
 .recommendation-content {
   display: grid;
   gap: 8px;
@@ -331,6 +335,32 @@ h2 {
   margin: 4px 0 0;
 }
 
+.registry-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.registry-row {
+  align-items: center;
+  border-top: 1px solid #edf1f7;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(110px, 160px) 1.5fr 1fr auto auto auto;
+  padding-top: 8px;
+}
+
+.registry-row code,
+.registry-row span {
+  color: #5a6b89;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.registry-row strong {
+  min-width: 0;
+}
+
 .apply-result {
   border-top: 1px solid #edf1f7;
   display: grid;
@@ -430,6 +460,11 @@ textarea {
   }
 
   .simulation-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .registry-row {
+    align-items: flex-start;
     grid-template-columns: 1fr;
   }
 }

@@ -53,11 +53,31 @@ export type PlanningSimulation = {
   };
 };
 
+export type OperatorTask = {
+  task_id: string;
+  title: string;
+  description?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
+  duration?: number | null;
+  priority?: string | null;
+  tags?: string[];
+  links?: string[];
+  status?: string | null;
+  scheduled_start?: string | null;
+  scheduled_date?: string | null;
+  deadline?: string | null;
+  done: boolean;
+  source: "akiflow";
+  last_synced_at: string;
+};
+
 export type ApplyPlanResponse = {
   applied: boolean;
   dry_run: boolean;
   would_modify_akiflow: boolean;
   actions: Array<{
+    action?: string;
     type?: string;
     task_id?: string | null;
     title?: string;
@@ -70,6 +90,7 @@ export type ApplyPlanResponse = {
     [key: string]: unknown;
   }>;
   skipped_actions: Array<{
+    action?: string;
     type?: string;
     task_id?: string | null;
     title?: string;
@@ -79,6 +100,7 @@ export type ApplyPlanResponse = {
     [key: string]: unknown;
   }>;
   succeeded_actions: Array<{
+    action?: string;
     type?: string;
     task_id?: string | null;
     title?: string;
@@ -88,6 +110,7 @@ export type ApplyPlanResponse = {
     [key: string]: unknown;
   }>;
   failed_actions: Array<{
+    action?: string;
     type?: string;
     task_id?: string | null;
     title?: string;
@@ -98,6 +121,11 @@ export type ApplyPlanResponse = {
     [key: string]: unknown;
   }>;
   message: string;
+};
+
+export type SyncTasksResponse = {
+  synced: number;
+  tasks: OperatorTask[];
 };
 
 export async function getHealth() {
@@ -249,4 +277,31 @@ export async function applyPlan(confirm = false): Promise<ApplyPlanResponse> {
   }
 
   return data as ApplyPlanResponse;
+}
+
+export async function syncTasks(startDate: string, endDate: string): Promise<SyncTasksResponse> {
+  const res = await fetch(`${API_BASE}/tasks/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+    mode: "cors",
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data as SyncTasksResponse;
+}
+
+export async function getTaskRegistry(): Promise<OperatorTask[]> {
+  const res = await fetch(`${API_BASE}/tasks/registry`, { mode: "cors" });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data as OperatorTask[];
 }
