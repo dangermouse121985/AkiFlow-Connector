@@ -19,7 +19,12 @@ from productivity_operator.models import (
     InboxReviewRequest,
     InboxReviewResponse,
 )
-from productivity_operator.planning import PlanningContext, PlanningContextBuilder
+from productivity_operator.planning import (
+    PlanningContext,
+    PlanningContextBuilder,
+    ScheduleOptimizer,
+    ScheduleRecommendation,
+)
 from productivity_operator.planner import PlannerEngine
 from productivity_operator.scoring import TaskScorer
 
@@ -36,6 +41,7 @@ app.add_middleware(
 settings = load_settings()
 planning_context_builder = PlanningContextBuilder(source=settings.data_source)
 planner = PlannerEngine()
+schedule_optimizer = ScheduleOptimizer()
 task_scorer = TaskScorer()
 task_analyzer = TaskAnalyzer()
 
@@ -73,6 +79,12 @@ def manual() -> dict[str, str]:
 @app.get("/planning/context", response_model=PlanningContext)
 def planning_context() -> PlanningContext:
     return planning_context_builder.build()
+
+
+@app.get("/planning/recommendation", response_model=ScheduleRecommendation)
+def planning_recommendation() -> ScheduleRecommendation:
+    context = planning_context_builder.build()
+    return schedule_optimizer.optimize(context)
 
 
 @app.post("/plan/day", response_model=DayPlanResponse)
