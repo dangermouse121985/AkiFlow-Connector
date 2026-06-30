@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ from productivity_operator.planning import (
     ApplyPlanRequest,
     ApplyPlanResponse,
     ApplyPlanService,
+    DailyPlanRecommendation,
+    DailyPlannerService,
     PlanningContext,
     PlanningContextBuilder,
     PlanningSimulation,
@@ -49,6 +52,7 @@ settings = load_settings()
 planning_context_builder = PlanningContextBuilder(source=settings.data_source)
 planner = PlannerEngine()
 schedule_optimizer = ScheduleOptimizer()
+daily_planner = DailyPlannerService()
 task_registry = TaskRegistry()
 apply_plan_service = ApplyPlanService(planning_context_builder.akiflow_service, task_registry)
 task_scorer = TaskScorer()
@@ -103,8 +107,13 @@ def akiflow_login() -> RedirectResponse:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.get("/akiflow/oauth/callback", response_class=HTMLResponse)
-def akiflow_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> str:
+@app.get("/akiflow/status")
+def akiflow_status() -> dict[str, Any]:
+    return planning_context_builder.akiflow_service.auth_status()
+
+
+@app.get("/akiflow/oauth/callback")
+def akiflow_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> RedirectResponse:
     if error:
         raise HTTPException(status_code=400, detail=error)
     if not code or not state:
@@ -115,16 +124,8 @@ def akiflow_oauth_callback(code: str | None = None, state: str | None = None, er
     except AkiflowServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    return """
-    <!doctype html>
-    <html>
-      <head><title>Akiflow Connected</title></head>
-      <body>
-        <h1>Akiflow connected</h1>
-        <p>You can return to Operator and sync tasks.</p>
-      </body>
-    </html>
-    """
+    frontend_url = os.getenv("OPERATOR_FRONTEND_URL", "http://127.0.0.1:5173")
+    return RedirectResponse(f"{frontend_url.rstrip('/')}?akiflow=connected")
 
 
 @app.get("/planning/context", response_model=PlanningContext)
@@ -161,9 +162,23 @@ def planning_simulation() -> PlanningSimulation:
     return build_planning_simulation(context, recommendation)
 
 
+@app.get("/planning/daily", response_model=DailyPlanRecommendation)
+def planning_daily() -> DailyPlanRecommendation:
+    context = planning_context_builder.build()
+    return daily_planner.build_plan(context, task_registry)
+
+
 @app.post("/planning/apply", response_model=ApplyPlanResponse)
 def apply_plan(req: ApplyPlanRequest | None = None) -> ApplyPlanResponse:
     context = planning_context_builder.build()
+    if task_registry.all():
+        daily_plan = daily_planner.build_plan(context, task_registry)
+        return apply_plan_service.apply_recommended_tasks(
+            [task.model_dump(mode="json") for task in daily_plan.recommended_plan],
+            current_datetime=context.current_datetime,
+            confirm=req.confirm if req else False,
+        )
+
     recommendation = schedule_optimizer.optimize(context)
     simulation = build_planning_simulation(context, recommendation)
     return apply_plan_service.apply(

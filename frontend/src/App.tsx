@@ -4,12 +4,15 @@ import {
   type ApplyPlanResponse,
   type AnalyzedTask,
   type DashboardTask,
+  type DailyPlanRecommendation,
   type OperatorTask,
   type PlanningSimulation,
   type ScoredTask,
   analyzeTasks,
   applyPlan,
   generateAkiflowCommand,
+  getAkiflowStatus,
+  getDailyPlan,
   getHealth,
   getPlanningSimulation,
   getSample,
@@ -60,12 +63,15 @@ type DayPlanPayload = {
 
 function App() {
   const [backendStatus, setBackendStatus] = useState("Checking...");
+  const [akiflowStatus, setAkiflowStatus] = useState("Checking Akiflow...");
+  const [isAkiflowConnected, setIsAkiflowConnected] = useState(false);
   const [input, setInput] = useState("");
   const [command, setCommand] = useState("No command generated yet.");
   const [plan, setPlan] = useState<PlanResult["plan"] | null>(null);
   const [scoredTasks, setScoredTasks] = useState<ScoredTask[]>([]);
   const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
   const [simulation, setSimulation] = useState<PlanningSimulation | null>(null);
+  const [dailyPlan, setDailyPlan] = useState<DailyPlanRecommendation | null>(null);
   const [applyResult, setApplyResult] = useState<ApplyPlanResponse | null>(null);
   const [syncedTasks, setSyncedTasks] = useState<OperatorTask[]>([]);
   const [syncedCount, setSyncedCount] = useState<number | null>(null);
@@ -93,7 +99,19 @@ function App() {
     getHealth()
       .then((data) => setBackendStatus(`Connected (${data.version})`))
       .catch(() => setBackendStatus("Not connected"));
+    refreshAkiflowStatus();
   }, []);
+
+  async function refreshAkiflowStatus() {
+    try {
+      const status = await getAkiflowStatus();
+      setIsAkiflowConnected(status.connected);
+      setAkiflowStatus(status.message);
+    } catch {
+      setIsAkiflowConnected(false);
+      setAkiflowStatus("Akiflow status unavailable.");
+    }
+  }
 
   async function loadSample() {
     setError("");
@@ -174,10 +192,12 @@ function App() {
     setIsLoadingSimulation(true);
 
     try {
-      const result = await getPlanningSimulation();
-      setSimulation(result);
+      const [simulationResult, dailyPlanResult] = await Promise.all([getPlanningSimulation(), getDailyPlan()]);
+      setSimulation(simulationResult);
+      setDailyPlan(dailyPlanResult);
     } catch (err) {
       setSimulation(null);
+      setDailyPlan(null);
       setSimulationError(err instanceof Error ? err.message : "Simulation failed");
     } finally {
       setIsLoadingSimulation(false);
@@ -194,6 +214,7 @@ function App() {
       const result = await syncTasks(today, today);
       setSyncedTasks(result.tasks);
       setSyncedCount(result.synced);
+      await refreshAkiflowStatus();
     } catch (err) {
       setSyncedTasks([]);
       setSyncedCount(null);
@@ -292,6 +313,8 @@ function App() {
         <div className="status">
           <span className={backendStatus.startsWith("Connected") ? "dot ok" : "dot bad"} />
           {backendStatus}
+          <span className={isAkiflowConnected ? "dot ok" : "dot bad"} />
+          {akiflowStatus}
         </div>
       </header>
 
@@ -350,20 +373,47 @@ function App() {
             {isApplyingPlan ? <span className="simulation-status">Dry run...</span> : null}
           </div>
         </div>
-        {simulation ? (
+        {simulation || dailyPlan ? (
           <div className="simulation-content">
-            <div className="simulation-summary">
-              <span>Recommended: {simulation.changes_summary.recommended_count}</span>
-              <span>Deferred: {simulation.changes_summary.deferred_count}</span>
-              <span>Remaining: {simulation.remaining_minutes} min</span>
-              <span>{simulation.changes_summary.would_modify_akiflow ? "Would modify Akiflow" : "Preview only"}</span>
-            </div>
-            <p className="simulation-explanation">{simulation.explanation}</p>
-            <div className="simulation-columns">
-              <SimulationList title="Current plan" tasks={simulation.current_plan} />
-              <SimulationList title="Recommended plan" tasks={simulation.recommended_plan} />
-              <SimulationList title="Deferred tasks" tasks={simulation.deferred_tasks} />
-            </div>
+            {dailyPlan ? (
+              <div className="daily-plan-preview">
+                <div className="simulation-summary">
+                  <span>Planned: {dailyPlan.recommended_plan.length}</span>
+                  <span>Skipped: {dailyPlan.skipped_tasks.length}</span>
+                  <span>Available blocks: {dailyPlan.available_blocks.length}</span>
+                  <span>Preview only</span>
+                </div>
+                <p className="simulation-explanation">{dailyPlan.explanation}</p>
+                <ActionTable
+                  title="Daily plan"
+                  actions={dailyPlan.recommended_plan.map((task) => ({
+                    action: "schedule_task",
+                    title: task.title,
+                    task_id: task.task_id,
+                    duration: task.duration,
+                    old_scheduled_time: task.old_scheduled_time,
+                    new_scheduled_time: task.new_scheduled_time,
+                    status: "proposed",
+                    reason: task.reason,
+                  }))}
+                />
+                {dailyPlan.skipped_tasks.length ? (
+                  <ActionTable
+                    title="Skipped tasks"
+                    fallbackStatus="skipped"
+                    actions={dailyPlan.skipped_tasks.map((task) => ({
+                      action: "schedule_task",
+                      title: task.title,
+                      task_id: task.task_id,
+                      status: "skipped",
+                      reason: task.reason,
+                    }))}
+                  />
+                ) : null}
+              </div>
+            ) : simulation ? (
+              <p className="simulation-explanation">{simulation.explanation}</p>
+            ) : null}
           </div>
         ) : (
           <p className="muted">Preview the optimized day before applying any changes.</p>
@@ -535,30 +585,6 @@ function App() {
   );
 }
 
-function SimulationList({ title, tasks }: { title: string; tasks: DashboardTask[] }) {
-  return (
-    <div className="simulation-list">
-      <h3>{title}</h3>
-      {tasks.length ? (
-        <ol>
-          {tasks.slice(0, 6).map((task, index) => (
-            <li key={`${safeTaskTitle(task.title)}-${index}`}>
-              <strong>{safeTaskTitle(task.title)}</strong>
-              <p>
-                {typeof task.duration === "number" ? `${task.duration} min` : "No duration"}
-                {typeof task.score === "number" ? ` - Score: ${task.score}` : ""}
-                {typeof task.defer_reason === "string" ? ` - ${task.defer_reason}` : ""}
-              </p>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="muted">None</p>
-      )}
-    </div>
-  );
-}
-
 function ActionTable({
   title,
   actions,
@@ -575,11 +601,11 @@ function ActionTable({
         <div className="apply-result-row header">
           <span>Title</span>
           <span>Task ID</span>
-          <span>Old time</span>
-          <span>New time</span>
+          <span>Original scheduled time</span>
+          <span>New scheduled time</span>
           <span>Status</span>
         </div>
-        {actions.slice(0, 8).map((action, index) => (
+        {actions.map((action, index) => (
           <div
             className="apply-result-row"
             key={`${title}-${action.action ?? action.type ?? "action"}-${action.task_id ?? action.title ?? index}`}
@@ -594,8 +620,8 @@ function ActionTable({
               </small>
             </span>
             <span>{action.task_id ?? "Missing"}</span>
-            <span>{formatOptionalDateTime(action.old_scheduled_time)}</span>
-            <span>{formatOptionalDateTime(action.new_scheduled_time ?? action.start_datetime)}</span>
+            <span>Original: {formatOptionalDateTime(action.old_scheduled_time)}</span>
+            <span>New: {formatOptionalDateTime(action.new_scheduled_time ?? action.start_datetime)}</span>
             <span className={`apply-status ${String(action.status ?? fallbackStatus).toLowerCase()}`}>
               {action.status ?? fallbackStatus}
             </span>
@@ -660,6 +686,8 @@ function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   }).format(date);

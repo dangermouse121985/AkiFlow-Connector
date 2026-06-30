@@ -38,7 +38,19 @@ class ApplyPlanService:
         current_datetime: datetime,
         confirm: bool = False,
     ) -> ApplyPlanResponse:
-        actions, skipped_actions = self._build_schedule_actions(simulation, current_datetime)
+        return self.apply_recommended_tasks(
+            list(simulation.recommended_plan),
+            current_datetime=current_datetime,
+            confirm=confirm,
+        )
+
+    def apply_recommended_tasks(
+        self,
+        recommended_tasks: list[dict[str, Any]],
+        current_datetime: datetime,
+        confirm: bool = False,
+    ) -> ApplyPlanResponse:
+        actions, skipped_actions = self._build_schedule_actions(recommended_tasks, current_datetime)
         if confirm:
             return self.confirm_apply(actions, skipped_actions)
 
@@ -99,14 +111,14 @@ class ApplyPlanService:
 
     def _build_schedule_actions(
         self,
-        simulation: PlanningSimulation,
+        recommended_tasks: list[dict[str, Any]],
         current_datetime: datetime,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         cursor = current_datetime.replace(second=0, microsecond=0)
         actions: list[dict[str, Any]] = []
         skipped_actions: list[dict[str, Any]] = []
 
-        for task in simulation.recommended_plan:
+        for task in recommended_tasks:
             title = str(task.get("title") or "Untitled task")
             duration = self._duration_minutes(task)
             task_id, registry_task, skip_reason = self._resolve_registry_task(task)
@@ -125,7 +137,7 @@ class ApplyPlanService:
                 cursor += timedelta(minutes=duration)
                 continue
 
-            start_datetime = cursor.isoformat()
+            start_datetime = self._start_datetime(task, cursor)
             actions.append(
                 {
                     "action": "schedule_task",
@@ -177,3 +189,9 @@ class ApplyPlanService:
         except (TypeError, ValueError):
             return 30
         return duration if duration > 0 else 30
+
+    def _start_datetime(self, task: dict[str, Any], fallback: datetime) -> str:
+        value = task.get("new_scheduled_time") or task.get("start_datetime")
+        if isinstance(value, str) and value.strip():
+            return value
+        return fallback.isoformat()

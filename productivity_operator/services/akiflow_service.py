@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime
+from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
@@ -32,6 +33,24 @@ class _McpResponse:
 class AkiflowService:
     """Production boundary for all Akiflow MCP communication."""
 
+    SCHEDULED_START_KEYS = [
+        "start",
+        "start_time",
+        "startTime",
+        "start_datetime",
+        "startDatetime",
+        "datetime",
+        "date",
+        "planned_at",
+        "plannedAt",
+        "planned_for",
+        "plannedFor",
+        "scheduled_at",
+        "scheduledAt",
+        "scheduled_start",
+        "scheduledStart",
+    ]
+
     def __init__(self) -> None:
         self.http_url = os.getenv("AKIFLOW_MCP_URL", "https://mcp.akiflow.com/mcp")
         self.command = os.getenv("AKIFLOW_MCP_COMMAND")
@@ -42,7 +61,11 @@ class AkiflowService:
         self.registration_endpoint = os.getenv("AKIFLOW_REGISTRATION_ENDPOINT", "https://web.akiflow.com/oauth/register")
         self.public_base_url = os.getenv("OPERATOR_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
         self.client_id = os.getenv("AKIFLOW_OAUTH_CLIENT_ID")
+        self.token_cache_path = Path(os.getenv("AKIFLOW_TOKEN_CACHE_PATH", ".operator/akiflow_token.json"))
+        self.refresh_token: str | None = None
+        self.token_expires_at: float | None = None
         self._oauth_states: dict[str, str] = {}
+        self._load_token_cache()
 
     def authorization_url(self) -> str:
         client_id = self._client_id()
@@ -99,11 +122,38 @@ class AkiflowService:
             raise AkiflowServiceError("Akiflow OAuth token response did not include an access token.")
 
         self.bearer_token = access_token
+        self.refresh_token = self._optional_token(token_response.get("refresh_token")) or self.refresh_token
+        self.token_expires_at = self._expires_at(token_response.get("expires_in"))
+        self._save_token_cache(token_response)
         return {
             "ok": True,
             "token_type": token_response.get("token_type"),
             "scope": token_response.get("scope"),
             "expires_in": token_response.get("expires_in"),
+        }
+
+    def auth_status(self) -> dict[str, Any]:
+        if not self.bearer_token:
+            return {
+                "connected": False,
+                "message": "Akiflow is not connected. Please connect Akiflow.",
+            }
+        if self._token_is_expired() and not self.refresh_token:
+            return {
+                "connected": False,
+                "expires_at": self.token_expires_at,
+                "message": "Akiflow login expired. Please connect Akiflow again.",
+            }
+        if self._token_is_expired() and self.refresh_token:
+            return {
+                "connected": True,
+                "expires_at": self.token_expires_at,
+                "message": "Akiflow token is expired; Operator will try to refresh it on the next request.",
+            }
+        return {
+            "connected": True,
+            "expires_at": self.token_expires_at,
+            "message": "Akiflow is connected.",
         }
 
     @property
@@ -251,6 +301,96 @@ class AkiflowService:
         digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
+    def _ensure_token_valid(self) -> None:
+        if not self._token_is_expired():
+            return
+        if not self.refresh_token:
+            raise AkiflowServiceError("Akiflow login expired. Please connect Akiflow again.")
+        self._refresh_access_token()
+
+    def _refresh_access_token(self) -> None:
+        if not self.refresh_token:
+            raise AkiflowServiceError("Akiflow login expired. Please connect Akiflow again.")
+
+        payload = urllib.parse.urlencode(
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": self.refresh_token,
+                "client_id": self._client_id(),
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.token_endpoint,
+            data=payload,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Operator/0.3",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                token_response = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # pragma: no cover - depends on Akiflow OAuth availability.
+            self.bearer_token = None
+            raise AkiflowServiceError("Akiflow login expired. Please connect Akiflow again.") from exc
+
+        access_token = token_response.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            self.bearer_token = None
+            raise AkiflowServiceError("Akiflow token refresh did not return an access token. Please connect Akiflow again.")
+
+        self.bearer_token = access_token
+        self.refresh_token = self._optional_token(token_response.get("refresh_token")) or self.refresh_token
+        self.token_expires_at = self._expires_at(token_response.get("expires_in"))
+        self._save_token_cache(token_response)
+
+    def _load_token_cache(self) -> None:
+        if self.bearer_token or not self.token_cache_path.exists():
+            return
+        try:
+            data = json.loads(self.token_cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        self.bearer_token = self._optional_token(data.get("access_token"))
+        self.refresh_token = self._optional_token(data.get("refresh_token"))
+        if not self.client_id:
+            self.client_id = self._optional_token(data.get("client_id"))
+        expires_at = data.get("expires_at")
+        if isinstance(expires_at, (int, float)):
+            self.token_expires_at = float(expires_at)
+
+    def _save_token_cache(self, token_response: dict[str, Any]) -> None:
+        self.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "access_token": self.bearer_token,
+            "refresh_token": self.refresh_token,
+            "expires_at": self.token_expires_at,
+            "client_id": self.client_id,
+            "scope": token_response.get("scope"),
+            "token_type": token_response.get("token_type"),
+            "saved_at": time.time(),
+        }
+        self.token_cache_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _optional_token(self, value: Any) -> str | None:
+        return value if isinstance(value, str) and value else None
+
+    def _expires_at(self, expires_in: Any) -> float | None:
+        try:
+            seconds = int(expires_in)
+        except (TypeError, ValueError):
+            return None
+        return time.time() + max(0, seconds)
+
+    def _token_is_expired(self) -> bool:
+        if self.token_expires_at is None:
+            return False
+        return time.time() >= self.token_expires_at - 60
+
     def _call_first_available_tool(self, calls: list[tuple[str, dict[str, Any]]]) -> Any:
         errors: list[str] = []
         for name, arguments in calls:
@@ -302,6 +442,7 @@ class AkiflowService:
             "Content-Type": "application/json",
             "User-Agent": "Operator/0.3",
         }
+        self._ensure_token_valid()
         if self.bearer_token:
             headers["Authorization"] = f"Bearer {self.bearer_token}"
         if session_id:
@@ -434,8 +575,8 @@ class AkiflowService:
                     "title": title,
                     "status": self._first_string(task, ["status"]),
                     "priority": self._first_string(task, ["priority"]),
-                    "start": self._first_string(item, ["start", "start_datetime", "startDatetime", "datetime", "date"])
-                    or self._first_string(task, ["start", "start_datetime", "startDatetime", "datetime", "date", "planned_at"]),
+                    "start": self._first_string(item, self.SCHEDULED_START_KEYS)
+                    or self._first_string(task, self.SCHEDULED_START_KEYS),
                     "deadline": self._first_string(task, ["deadline", "due_date", "dueDate"]),
                     "duration": self._first_int(task, ["duration", "duration_minutes", "durationMinutes"]),
                     "source": "akiflow",
@@ -458,8 +599,8 @@ class AkiflowService:
                 continue
 
             scheduled_start = (
-                self._first_string(item, ["start", "start_datetime", "startDatetime", "datetime", "date"])
-                or self._first_string(task, ["start", "start_datetime", "startDatetime", "datetime", "date", "planned_at"])
+                self._first_string(item, self.SCHEDULED_START_KEYS)
+                or self._first_string(task, self.SCHEDULED_START_KEYS)
             )
             project = task.get("project") if isinstance(task.get("project"), dict) else {}
 

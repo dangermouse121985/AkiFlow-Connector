@@ -89,6 +89,32 @@ export type ApplyPlanAction = {
   [key: string]: unknown;
 };
 
+export type DailyPlanTask = {
+  task_id: string;
+  title: string;
+  project?: string | null;
+  duration: number;
+  old_scheduled_time?: string | null;
+  new_scheduled_time: string;
+  reason: string;
+};
+
+export type DailyPlanRecommendation = {
+  recommended_plan: DailyPlanTask[];
+  skipped_tasks: Array<{
+    task_id?: string | null;
+    title: string;
+    reason: string;
+  }>;
+  available_blocks: Array<{
+    start: string;
+    end: string;
+    kind: "work" | "personal";
+    minutes: number;
+  }>;
+  explanation: string;
+};
+
 export type ApplyPlanResponse = {
   applied: boolean;
   dry_run: boolean;
@@ -103,6 +129,12 @@ export type ApplyPlanResponse = {
 export type SyncTasksResponse = {
   synced: number;
   tasks: OperatorTask[];
+};
+
+export type AkiflowStatus = {
+  connected: boolean;
+  expires_at?: number | null;
+  message: string;
 };
 
 export async function getHealth() {
@@ -120,6 +152,17 @@ export async function getHealth() {
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+export async function getAkiflowStatus(): Promise<AkiflowStatus> {
+  const res = await fetch(`${API_BASE}/akiflow/status`, { mode: "cors" });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data as AkiflowStatus;
 }
 
 export async function getSample() {
@@ -238,6 +281,17 @@ export async function getPlanningSimulation(): Promise<PlanningSimulation> {
   }
 
   return data as PlanningSimulation;
+}
+
+export async function getDailyPlan(): Promise<DailyPlanRecommendation> {
+  const res = await fetch(`${API_BASE}/planning/daily`, { mode: "cors" });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data as DailyPlanRecommendation;
 }
 
 export async function applyPlan(confirm = false): Promise<ApplyPlanResponse> {
