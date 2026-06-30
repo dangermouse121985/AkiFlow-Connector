@@ -277,7 +277,7 @@ function App() {
         <button onClick={analyzeCurrentTasks}>Analyze Tasks</button>
         <button onClick={previewOptimizedDay}>Preview Optimized Day</button>
         <button onClick={previewApplyPlan}>Apply Plan</button>
-        {applyResult?.dry_run ? <button onClick={confirmApplyPlan}>Confirm Apply</button> : null}
+        {applyResult?.dry_run ? <button onClick={confirmApplyPlan}>Confirm Apply to Akiflow</button> : null}
         <button onClick={copyCommand}>Copy Akiflow Command</button>
       </section>
 
@@ -315,19 +315,35 @@ function App() {
               <span>{applyResult.would_modify_akiflow ? "Would modify Akiflow" : "No Akiflow writes"}</span>
               <span>{applyResult.dry_run ? "Preview only" : "Confirmed apply"}</span>
               <span>Actions: {applyResult.actions.length}</span>
+              <span>Skipped: {applyResult.skipped_actions.length}</span>
+              <span>Succeeded: {applyResult.succeeded_actions.length}</span>
+              <span>Failed: {applyResult.failed_actions.length}</span>
             </div>
             <p className="simulation-explanation">{applyResult.message}</p>
+            {applyResult.dry_run && applyResult.actions.length ? (
+              <p className="simulation-explanation">Confirm Apply to Akiflow will schedule these existing tasks.</p>
+            ) : null}
             {applyResult.actions.length ? (
               <ol className="apply-actions">
                 {applyResult.actions.slice(0, 8).map((action, index) => (
                   <li key={`${action.type ?? "action"}-${action.title ?? index}`}>
                     <strong>{formatActionType(action.type)}</strong>
                     <span>{action.title ?? "Untitled task"}</span>
-                    {typeof action.position === "number" ? <span>#{action.position}</span> : null}
+                    {action.start_datetime ? <span>{formatDateTime(action.start_datetime)}</span> : null}
+                    {typeof action.duration === "number" ? <span>{action.duration} min</span> : null}
                     {action.reason ? <span>{action.reason}</span> : null}
                   </li>
                 ))}
               </ol>
+            ) : null}
+            {applyResult.skipped_actions.length ? (
+              <ActionGroup title="Skipped" actions={applyResult.skipped_actions} />
+            ) : null}
+            {applyResult.succeeded_actions.length ? (
+              <ActionGroup title="Succeeded" actions={applyResult.succeeded_actions} />
+            ) : null}
+            {applyResult.failed_actions.length ? (
+              <ActionGroup title="Failed" actions={applyResult.failed_actions} />
             ) : null}
           </div>
         ) : null}
@@ -492,6 +508,26 @@ function SimulationList({ title, tasks }: { title: string; tasks: DashboardTask[
   );
 }
 
+function ActionGroup({ title, actions }: { title: string; actions: ApplyPlanResponse["actions"] }) {
+  return (
+    <div className="apply-action-group">
+      <h3>{title}</h3>
+      <ol className="apply-actions">
+        {actions.slice(0, 8).map((action, index) => (
+          <li key={`${title}-${action.type ?? "action"}-${action.title ?? index}`}>
+            <strong>{formatActionType(action.type)}</strong>
+            <span>{action.title ?? "Untitled task"}</span>
+            {action.start_datetime ? <span>{formatDateTime(action.start_datetime)}</span> : null}
+            {typeof action.duration === "number" ? <span>{action.duration} min</span> : null}
+            {action.reason ? <span>{action.reason}</span> : null}
+            {action.error ? <span>{action.error}</span> : null}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function taskKey(task: { id?: string | null; title?: string }) {
   return task.id ?? task.title ?? null;
 }
@@ -540,6 +576,15 @@ function formatLabel(value: unknown) {
 function formatActionType(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return "Action";
   return formatLabel(value);
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {

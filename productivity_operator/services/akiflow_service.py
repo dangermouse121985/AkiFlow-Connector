@@ -88,6 +88,25 @@ class AkiflowService:
             "result": self._call_tool("complete_task", {"task_id": task_id}),
         }
 
+    def plan_task(self, task_id: str, start_datetime: str) -> dict[str, Any]:
+        if not task_id:
+            raise AkiflowServiceError("task_id is required.")
+        if not start_datetime:
+            raise AkiflowServiceError("start_datetime is required.")
+
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "start_datetime": start_datetime,
+            "result": self._call_tool(
+                "plan_task",
+                {
+                    "task_id": task_id,
+                    "start_datetime": start_datetime,
+                },
+            ),
+        }
+
     def _call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         if self.http_url:
             response = self._mcp_request_http("tools/call", {"name": name, "arguments": arguments})

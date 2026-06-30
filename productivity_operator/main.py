@@ -47,7 +47,7 @@ settings = load_settings()
 planning_context_builder = PlanningContextBuilder(source=settings.data_source)
 planner = PlannerEngine()
 schedule_optimizer = ScheduleOptimizer()
-apply_plan_service = ApplyPlanService()
+apply_plan_service = ApplyPlanService(planning_context_builder.akiflow_service)
 task_scorer = TaskScorer()
 task_analyzer = TaskAnalyzer()
 
@@ -105,7 +105,11 @@ def apply_plan(req: ApplyPlanRequest | None = None) -> ApplyPlanResponse:
     context = planning_context_builder.build()
     recommendation = schedule_optimizer.optimize(context)
     simulation = build_planning_simulation(context, recommendation)
-    return apply_plan_service.apply(simulation, confirm=req.confirm if req else False)
+    return apply_plan_service.apply(
+        simulation,
+        current_datetime=context.current_datetime,
+        confirm=req.confirm if req else False,
+    )
 
 
 @app.post("/plan/day", response_model=DayPlanResponse)

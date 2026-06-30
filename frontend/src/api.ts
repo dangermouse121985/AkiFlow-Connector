@@ -61,9 +61,40 @@ export type ApplyPlanResponse = {
     type?: string;
     task_id?: string | null;
     title?: string;
+    start_datetime?: string;
+    duration?: number;
     position?: number;
     reason?: string;
     dry_run?: boolean;
+    error?: string;
+    [key: string]: unknown;
+  }>;
+  skipped_actions: Array<{
+    type?: string;
+    task_id?: string | null;
+    title?: string;
+    start_datetime?: string;
+    duration?: number;
+    reason?: string;
+    [key: string]: unknown;
+  }>;
+  succeeded_actions: Array<{
+    type?: string;
+    task_id?: string | null;
+    title?: string;
+    start_datetime?: string;
+    duration?: number;
+    reason?: string;
+    [key: string]: unknown;
+  }>;
+  failed_actions: Array<{
+    type?: string;
+    task_id?: string | null;
+    title?: string;
+    start_datetime?: string;
+    duration?: number;
+    reason?: string;
+    error?: string;
     [key: string]: unknown;
   }>;
   message: string;
