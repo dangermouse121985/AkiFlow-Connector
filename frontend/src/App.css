@@ -65,6 +65,13 @@ h2 {
   margin: 0;
 }
 
+.panel-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .subtitle,
 .muted {
   color: #5a6b89;
@@ -322,6 +329,30 @@ h2 {
   font-size: 12px;
   font-weight: 700;
   margin: 4px 0 0;
+}
+
+.apply-result {
+  border-top: 1px solid #edf1f7;
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.apply-actions {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.apply-actions li {
+  margin-bottom: 8px;
+}
+
+.apply-actions span {
+  color: #5a6b89;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 8px;
 }
 
 .scoring-status,

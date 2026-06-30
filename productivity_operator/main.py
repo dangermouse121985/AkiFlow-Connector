@@ -20,6 +20,8 @@ from productivity_operator.models import (
     InboxReviewResponse,
 )
 from productivity_operator.planning import (
+    ApplyPlanResponse,
+    ApplyPlanService,
     PlanningContext,
     PlanningContextBuilder,
     PlanningSimulation,
@@ -44,6 +46,7 @@ settings = load_settings()
 planning_context_builder = PlanningContextBuilder(source=settings.data_source)
 planner = PlannerEngine()
 schedule_optimizer = ScheduleOptimizer()
+apply_plan_service = ApplyPlanService()
 task_scorer = TaskScorer()
 task_analyzer = TaskAnalyzer()
 
@@ -94,6 +97,14 @@ def planning_simulation() -> PlanningSimulation:
     context = planning_context_builder.build()
     recommendation = schedule_optimizer.optimize(context)
     return build_planning_simulation(context, recommendation)
+
+
+@app.post("/planning/apply", response_model=ApplyPlanResponse)
+def apply_plan() -> ApplyPlanResponse:
+    context = planning_context_builder.build()
+    recommendation = schedule_optimizer.optimize(context)
+    simulation = build_planning_simulation(context, recommendation)
+    return apply_plan_service.preview_apply(simulation)
 
 
 @app.post("/plan/day", response_model=DayPlanResponse)

@@ -53,6 +53,22 @@ export type PlanningSimulation = {
   };
 };
 
+export type ApplyPlanResponse = {
+  applied: boolean;
+  dry_run: boolean;
+  would_modify_akiflow: boolean;
+  actions: Array<{
+    type?: string;
+    task_id?: string | null;
+    title?: string;
+    position?: number;
+    reason?: string;
+    dry_run?: boolean;
+    [key: string]: unknown;
+  }>;
+  message: string;
+};
+
 export async function getHealth() {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 3000);
@@ -186,4 +202,18 @@ export async function getPlanningSimulation(): Promise<PlanningSimulation> {
   }
 
   return data as PlanningSimulation;
+}
+
+export async function applyPlanDryRun(): Promise<ApplyPlanResponse> {
+  const res = await fetch(`${API_BASE}/planning/apply`, {
+    method: "POST",
+    mode: "cors",
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(JSON.stringify(data, null, 2));
+  }
+
+  return data as ApplyPlanResponse;
 }

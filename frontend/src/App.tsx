@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import {
+  type ApplyPlanResponse,
   type AnalyzedTask,
   type DashboardTask,
   type PlanningSimulation,
   type ScoredTask,
   analyzeTasks,
+  applyPlanDryRun,
   generateAkiflowCommand,
   getHealth,
   getPlanningSimulation,
@@ -61,12 +63,15 @@ function App() {
   const [scoredTasks, setScoredTasks] = useState<ScoredTask[]>([]);
   const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
   const [simulation, setSimulation] = useState<PlanningSimulation | null>(null);
+  const [applyResult, setApplyResult] = useState<ApplyPlanResponse | null>(null);
   const [isScoringTasks, setIsScoringTasks] = useState(false);
   const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
   const [isLoadingSimulation, setIsLoadingSimulation] = useState(false);
+  const [isApplyingPlan, setIsApplyingPlan] = useState(false);
   const [scoringError, setScoringError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [simulationError, setSimulationError] = useState("");
+  const [applyError, setApplyError] = useState("");
   const [error, setError] = useState("");
 
   const todayLabel = useMemo(() => {
@@ -88,6 +93,7 @@ function App() {
     setScoringError("");
     setAnalysisError("");
     setSimulationError("");
+    setApplyError("");
     const sample = await getSample();
     setInput(JSON.stringify(sample, null, 2));
   }
@@ -97,6 +103,7 @@ function App() {
     setScoringError("");
     setAnalysisError("");
     setSimulationError("");
+    setApplyError("");
 
     try {
       const payload = JSON.parse(input) as DayPlanPayload;
@@ -106,6 +113,7 @@ function App() {
       setPlan(result.plan);
       setAnalyzedTasks([]);
       setSimulation(null);
+      setApplyResult(null);
 
       if (payload.tasks?.length) {
         setIsScoringTasks(true);
@@ -152,6 +160,7 @@ function App() {
 
   async function previewOptimizedDay() {
     setSimulationError("");
+    setApplyError("");
     setError("");
     setIsLoadingSimulation(true);
 
@@ -163,6 +172,22 @@ function App() {
       setSimulationError(err instanceof Error ? err.message : "Simulation failed");
     } finally {
       setIsLoadingSimulation(false);
+    }
+  }
+
+  async function applyPlan() {
+    setApplyError("");
+    setError("");
+    setIsApplyingPlan(true);
+
+    try {
+      const result = await applyPlanDryRun();
+      setApplyResult(result);
+    } catch (err) {
+      setApplyResult(null);
+      setApplyError(err instanceof Error ? err.message : "Apply plan dry run failed");
+    } finally {
+      setIsApplyingPlan(false);
     }
   }
 
@@ -226,6 +251,7 @@ function App() {
       {scoringError && <p className="inline-error">Task scoring failed. The dashboard is still usable.</p>}
       {analysisError && <p className="inline-error">{analysisError}</p>}
       {simulationError && <p className="inline-error">{simulationError}</p>}
+      {applyError && <p className="inline-error">{applyError}</p>}
 
       <section className="actions">
         <button onClick={loadSample}>Load Sample Day</button>
@@ -234,13 +260,17 @@ function App() {
         </button>
         <button onClick={analyzeCurrentTasks}>Analyze Tasks</button>
         <button onClick={previewOptimizedDay}>Preview Optimized Day</button>
+        <button onClick={applyPlan}>Apply Plan</button>
         <button onClick={copyCommand}>Copy Akiflow Command</button>
       </section>
 
       <section className="panel simulation-panel">
         <div className="panel-heading">
           <h2>Simulation Mode</h2>
-          {isLoadingSimulation ? <span className="simulation-status">Loading simulation...</span> : null}
+          <div className="panel-statuses">
+            {isLoadingSimulation ? <span className="simulation-status">Loading simulation...</span> : null}
+            {isApplyingPlan ? <span className="simulation-status">Dry run...</span> : null}
+          </div>
         </div>
         {simulation ? (
           <div className="simulation-content">
@@ -260,6 +290,29 @@ function App() {
         ) : (
           <p className="muted">Preview the optimized day before applying any changes.</p>
         )}
+        {applyResult ? (
+          <div className="apply-result">
+            <div className="simulation-summary">
+              <span>Applied: {applyResult.applied ? "Yes" : "No"}</span>
+              <span>Dry run: {applyResult.dry_run ? "Yes" : "No"}</span>
+              <span>{applyResult.would_modify_akiflow ? "Would modify Akiflow" : "No Akiflow writes"}</span>
+              <span>Actions: {applyResult.actions.length}</span>
+            </div>
+            <p className="simulation-explanation">{applyResult.message}</p>
+            {applyResult.actions.length ? (
+              <ol className="apply-actions">
+                {applyResult.actions.slice(0, 8).map((action, index) => (
+                  <li key={`${action.type ?? "action"}-${action.title ?? index}`}>
+                    <strong>{formatActionType(action.type)}</strong>
+                    <span>{action.title ?? "Untitled task"}</span>
+                    {typeof action.position === "number" ? <span>#{action.position}</span> : null}
+                    {action.reason ? <span>{action.reason}</span> : null}
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="panel analysis-panel">
@@ -464,6 +517,11 @@ function formatLabel(value: unknown) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatActionType(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return "Action";
+  return formatLabel(value);
 }
 
 function normalizeScheduledItems(plan: PlanResult["plan"] | null): ScheduledFocusItem[] {
