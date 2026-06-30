@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +10,7 @@ from pydantic import BaseModel
 
 from productivity_operator.analysis import TaskAnalyzer
 from productivity_operator.commands import akiflow_ai_command
+from productivity_operator.config import load_settings
 from productivity_operator.inbox import review_inbox
 from productivity_operator.manual import PRODUCTIVITY_MANUAL
 from productivity_operator.models import (
@@ -19,6 +19,7 @@ from productivity_operator.models import (
     InboxReviewRequest,
     InboxReviewResponse,
 )
+from productivity_operator.planning import PlanningContext, PlanningContextBuilder
 from productivity_operator.planner import PlannerEngine
 from productivity_operator.scoring import TaskScorer
 
@@ -32,6 +33,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+settings = load_settings()
+planning_context_builder = PlanningContextBuilder(source=settings.data_source)
 planner = PlannerEngine()
 task_scorer = TaskScorer()
 task_analyzer = TaskAnalyzer()
@@ -54,8 +57,7 @@ def dashboard() -> str:
 
 @app.get("/sample")
 def sample() -> dict:
-    sample_path = Path(__file__).parent.parent / "sample_day_request.json"
-    return json.loads(sample_path.read_text(encoding="utf-8"))
+    return planning_context_builder.build("sample").to_day_plan_request().model_dump(mode="json")
 
 
 @app.get("/health")
@@ -68,14 +70,21 @@ def manual() -> dict[str, str]:
     return {"manual": PRODUCTIVITY_MANUAL}
 
 
+@app.get("/planning/context", response_model=PlanningContext)
+def planning_context() -> PlanningContext:
+    return planning_context_builder.build()
+
+
 @app.post("/plan/day", response_model=DayPlanResponse)
 def plan_day_endpoint(req: DayPlanRequest) -> DayPlanResponse:
-    return planner.plan_day(req)
+    context = planning_context_builder.from_day_plan_request(req)
+    return planner.plan_day(context)
 
 
 @app.post("/commands/akiflow-ai", response_model=CommandResponse)
 def akiflow_command_endpoint(req: DayPlanRequest) -> CommandResponse:
-    plan = planner.plan_day(req)
+    context = planning_context_builder.from_day_plan_request(req)
+    plan = planner.plan_day(context)
     command = akiflow_ai_command(plan)
     plan.command = command
     return CommandResponse(command=command, plan=plan)
