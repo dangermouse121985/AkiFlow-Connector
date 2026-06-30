@@ -20,6 +20,7 @@ from productivity_operator.models import (
     InboxReviewResponse,
 )
 from productivity_operator.planning import (
+    ApplyPlanRequest,
     ApplyPlanResponse,
     ApplyPlanService,
     PlanningContext,
@@ -100,11 +101,11 @@ def planning_simulation() -> PlanningSimulation:
 
 
 @app.post("/planning/apply", response_model=ApplyPlanResponse)
-def apply_plan() -> ApplyPlanResponse:
+def apply_plan(req: ApplyPlanRequest | None = None) -> ApplyPlanResponse:
     context = planning_context_builder.build()
     recommendation = schedule_optimizer.optimize(context)
     simulation = build_planning_simulation(context, recommendation)
-    return apply_plan_service.preview_apply(simulation)
+    return apply_plan_service.apply(simulation, confirm=req.confirm if req else False)
 
 
 @app.post("/plan/day", response_model=DayPlanResponse)

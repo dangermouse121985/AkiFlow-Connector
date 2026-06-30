@@ -7,7 +7,7 @@ import {
   type PlanningSimulation,
   type ScoredTask,
   analyzeTasks,
-  applyPlanDryRun,
+  applyPlan,
   generateAkiflowCommand,
   getHealth,
   getPlanningSimulation,
@@ -175,17 +175,33 @@ function App() {
     }
   }
 
-  async function applyPlan() {
+  async function previewApplyPlan() {
     setApplyError("");
     setError("");
     setIsApplyingPlan(true);
 
     try {
-      const result = await applyPlanDryRun();
+      const result = await applyPlan(false);
       setApplyResult(result);
     } catch (err) {
       setApplyResult(null);
       setApplyError(err instanceof Error ? err.message : "Apply plan dry run failed");
+    } finally {
+      setIsApplyingPlan(false);
+    }
+  }
+
+  async function confirmApplyPlan() {
+    setApplyError("");
+    setError("");
+    setIsApplyingPlan(true);
+
+    try {
+      const result = await applyPlan(true);
+      setApplyResult(result);
+    } catch (err) {
+      setApplyResult(null);
+      setApplyError(err instanceof Error ? err.message : "Confirm apply failed");
     } finally {
       setIsApplyingPlan(false);
     }
@@ -260,7 +276,8 @@ function App() {
         </button>
         <button onClick={analyzeCurrentTasks}>Analyze Tasks</button>
         <button onClick={previewOptimizedDay}>Preview Optimized Day</button>
-        <button onClick={applyPlan}>Apply Plan</button>
+        <button onClick={previewApplyPlan}>Apply Plan</button>
+        {applyResult?.dry_run ? <button onClick={confirmApplyPlan}>Confirm Apply</button> : null}
         <button onClick={copyCommand}>Copy Akiflow Command</button>
       </section>
 
@@ -296,6 +313,7 @@ function App() {
               <span>Applied: {applyResult.applied ? "Yes" : "No"}</span>
               <span>Dry run: {applyResult.dry_run ? "Yes" : "No"}</span>
               <span>{applyResult.would_modify_akiflow ? "Would modify Akiflow" : "No Akiflow writes"}</span>
+              <span>{applyResult.dry_run ? "Preview only" : "Confirmed apply"}</span>
               <span>Actions: {applyResult.actions.length}</span>
             </div>
             <p className="simulation-explanation">{applyResult.message}</p>

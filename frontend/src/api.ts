@@ -204,9 +204,11 @@ export async function getPlanningSimulation(): Promise<PlanningSimulation> {
   return data as PlanningSimulation;
 }
 
-export async function applyPlanDryRun(): Promise<ApplyPlanResponse> {
+export async function applyPlan(confirm = false): Promise<ApplyPlanResponse> {
   const res = await fetch(`${API_BASE}/planning/apply`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm }),
     mode: "cors",
   });
   const data = await res.json();

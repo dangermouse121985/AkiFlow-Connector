@@ -15,8 +15,18 @@ class ApplyPlanResponse(BaseModel):
     message: str
 
 
+class ApplyPlanRequest(BaseModel):
+    confirm: bool = False
+
+
 class ApplyPlanService:
     """Safe dry-run apply layer for optimized plans."""
+
+    def apply(self, simulation: PlanningSimulation, confirm: bool = False) -> ApplyPlanResponse:
+        if confirm:
+            return self.confirm_apply(simulation)
+
+        return self.preview_apply(simulation)
 
     def preview_apply(self, simulation: PlanningSimulation) -> ApplyPlanResponse:
         actions = [
@@ -44,4 +54,13 @@ class ApplyPlanService:
         return ApplyPlanResponse(
             actions=actions,
             message="Dry run only. No Akiflow tasks were modified.",
+        )
+
+    def confirm_apply(self, simulation: PlanningSimulation) -> ApplyPlanResponse:
+        return ApplyPlanResponse(
+            applied=True,
+            dry_run=False,
+            would_modify_akiflow=True,
+            actions=[],
+            message="Plan confirmation received, but no Akiflow write actions are implemented yet.",
         )
