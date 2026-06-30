@@ -390,6 +390,71 @@ h2 {
   margin: 0 0 8px;
 }
 
+.apply-result-table {
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.apply-result-row {
+  align-items: start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 2fr) minmax(110px, 1fr) minmax(84px, 0.8fr) minmax(84px, 0.8fr) minmax(84px, 0.7fr);
+  padding: 10px 12px;
+}
+
+.apply-result-row + .apply-result-row {
+  border-top: 1px solid #edf1f7;
+}
+
+.apply-result-row.header {
+  background: #f7f9fd;
+  color: #5a6b89;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.apply-result-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apply-result-row small {
+  color: #5a6b89;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+.apply-status {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #39506f;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 8px;
+  text-align: center;
+  width: fit-content;
+}
+
+.apply-status.succeeded {
+  background: #e7f7ed;
+  color: #176334;
+}
+
+.apply-status.failed,
+.apply-status.skipped {
+  background: #fff1f1;
+  color: #8a1f1f;
+}
+
+.apply-status.proposed {
+  background: #fff7dd;
+  color: #8a5a00;
+}
+
 .scoring-status,
 .analysis-status,
 .simulation-status {
@@ -452,6 +517,14 @@ textarea {
   .status {
     margin-top: 16px;
     width: fit-content;
+  }
+
+  .apply-result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .apply-result-row.header {
+    display: none;
   }
 
   .task-row {

@@ -72,54 +72,31 @@ export type OperatorTask = {
   last_synced_at: string;
 };
 
+export type ApplyPlanAction = {
+  action?: string;
+  type?: string;
+  task_id?: string | null;
+  title?: string;
+  start_datetime?: string;
+  old_scheduled_time?: string | null;
+  new_scheduled_time?: string | null;
+  duration?: number;
+  position?: number;
+  status?: "proposed" | "succeeded" | "failed" | "skipped" | string;
+  reason?: string;
+  dry_run?: boolean;
+  error?: string;
+  [key: string]: unknown;
+};
+
 export type ApplyPlanResponse = {
   applied: boolean;
   dry_run: boolean;
   would_modify_akiflow: boolean;
-  actions: Array<{
-    action?: string;
-    type?: string;
-    task_id?: string | null;
-    title?: string;
-    start_datetime?: string;
-    duration?: number;
-    position?: number;
-    reason?: string;
-    dry_run?: boolean;
-    error?: string;
-    [key: string]: unknown;
-  }>;
-  skipped_actions: Array<{
-    action?: string;
-    type?: string;
-    task_id?: string | null;
-    title?: string;
-    start_datetime?: string;
-    duration?: number;
-    reason?: string;
-    [key: string]: unknown;
-  }>;
-  succeeded_actions: Array<{
-    action?: string;
-    type?: string;
-    task_id?: string | null;
-    title?: string;
-    start_datetime?: string;
-    duration?: number;
-    reason?: string;
-    [key: string]: unknown;
-  }>;
-  failed_actions: Array<{
-    action?: string;
-    type?: string;
-    task_id?: string | null;
-    title?: string;
-    start_datetime?: string;
-    duration?: number;
-    reason?: string;
-    error?: string;
-    [key: string]: unknown;
-  }>;
+  actions: ApplyPlanAction[];
+  skipped_actions: ApplyPlanAction[];
+  succeeded_actions: ApplyPlanAction[];
+  failed_actions: ApplyPlanAction[];
   message: string;
 };
 

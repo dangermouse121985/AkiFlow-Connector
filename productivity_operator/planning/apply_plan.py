@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from productivity_operator.planning.simulation import PlanningSimulation
 from productivity_operator.services import AkiflowService, AkiflowServiceError
-from productivity_operator.task_registry import TaskRegistry
+from productivity_operator.task_registry import OperatorTask, TaskRegistry
 
 
 class ApplyPlanResponse(BaseModel):
@@ -78,9 +78,9 @@ class ApplyPlanService:
                     str(action["task_id"]),
                     str(action["start_datetime"]),
                 )
-                succeeded_actions.append({**action, "result": result})
+                succeeded_actions.append({**action, "status": "succeeded", "result": result})
             except AkiflowServiceError as exc:
-                failed_actions.append({**action, "error": str(exc)})
+                failed_actions.append({**action, "status": "failed", "error": str(exc)})
 
         message = (
             f"Confirmed apply complete. Scheduled {len(succeeded_actions)} task(s); "
@@ -109,7 +109,7 @@ class ApplyPlanService:
         for task in simulation.recommended_plan:
             title = str(task.get("title") or "Untitled task")
             duration = self._duration_minutes(task)
-            task_id, skip_reason = self._resolve_task_id(task)
+            task_id, registry_task, skip_reason = self._resolve_registry_task(task)
 
             if skip_reason:
                 skipped_actions.append(
@@ -118,6 +118,7 @@ class ApplyPlanService:
                         "type": "schedule_task",
                         "title": title,
                         "duration": duration,
+                        "status": "skipped",
                         "reason": skip_reason,
                     }
                 )
@@ -132,7 +133,10 @@ class ApplyPlanService:
                     "task_id": task_id,
                     "title": title,
                     "start_datetime": start_datetime,
+                    "old_scheduled_time": registry_task.scheduled_start if registry_task else None,
+                    "new_scheduled_time": start_datetime,
                     "duration": duration,
+                    "status": "proposed",
                     "reason": "Recommended by ScheduleOptimizer and fits remaining available time.",
                 }
             )
@@ -140,23 +144,31 @@ class ApplyPlanService:
 
         return actions, skipped_actions
 
-    def _resolve_task_id(self, task: dict[str, Any]) -> tuple[str | None, str | None]:
+    def _resolve_registry_task(
+        self,
+        task: dict[str, Any],
+    ) -> tuple[str | None, OperatorTask | None, str | None]:
+        if self.task_registry is None:
+            return None, None, "No task registry is available."
+
         raw_task_id = task.get("task_id") or task.get("id")
         if isinstance(raw_task_id, str) and raw_task_id.strip():
-            return raw_task_id, None
+            task_id = raw_task_id.strip()
+            registry_task = self.task_registry.get_by_id(task_id)
+            if registry_task is None:
+                return None, None, "Task id not found in registry"
+            return registry_task.task_id, registry_task, None
 
         title = task.get("title")
         if not isinstance(title, str) or not title.strip():
-            return None, "Missing task_id and title; cannot resolve an existing Akiflow task."
-        if self.task_registry is None:
-            return None, "No task registry is available."
+            return None, None, "Missing task_id and title; cannot resolve an existing Akiflow task."
 
         matches = self.task_registry.find_by_title(title)
         if not matches:
-            return None, "No matching task in registry"
+            return None, None, "No matching task in registry"
         if len(matches) > 1:
-            return None, "Multiple matching tasks in registry"
-        return matches[0].task_id, None
+            return None, None, "Multiple matching tasks in registry"
+        return matches[0].task_id, matches[0], None
 
     def _duration_minutes(self, task: dict[str, Any]) -> int:
         value = task.get("duration")

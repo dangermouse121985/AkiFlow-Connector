@@ -385,26 +385,16 @@ function App() {
               <p className="simulation-explanation">Confirm Apply to Akiflow will schedule these existing tasks.</p>
             ) : null}
             {applyResult.actions.length ? (
-              <ol className="apply-actions">
-                {applyResult.actions.slice(0, 8).map((action, index) => (
-                  <li key={`${action.action ?? action.type ?? "action"}-${action.title ?? index}`}>
-                    <strong>{formatActionType(action.action ?? action.type)}</strong>
-                    <span>{action.title ?? "Untitled task"}</span>
-                    {action.start_datetime ? <span>{formatDateTime(action.start_datetime)}</span> : null}
-                    {typeof action.duration === "number" ? <span>{action.duration} min</span> : null}
-                    {action.reason ? <span>{action.reason}</span> : null}
-                  </li>
-                ))}
-              </ol>
+              <ActionTable title="Proposed schedule actions" actions={applyResult.actions} />
             ) : null}
             {applyResult.skipped_actions.length ? (
-              <ActionGroup title="Skipped" actions={applyResult.skipped_actions} />
+              <ActionTable title="Skipped" actions={applyResult.skipped_actions} fallbackStatus="skipped" />
             ) : null}
             {applyResult.succeeded_actions.length ? (
-              <ActionGroup title="Succeeded" actions={applyResult.succeeded_actions} />
+              <ActionTable title="Succeeded" actions={applyResult.succeeded_actions} fallbackStatus="succeeded" />
             ) : null}
             {applyResult.failed_actions.length ? (
-              <ActionGroup title="Failed" actions={applyResult.failed_actions} />
+              <ActionTable title="Failed" actions={applyResult.failed_actions} fallbackStatus="failed" />
             ) : null}
           </div>
         ) : null}
@@ -569,22 +559,49 @@ function SimulationList({ title, tasks }: { title: string; tasks: DashboardTask[
   );
 }
 
-function ActionGroup({ title, actions }: { title: string; actions: ApplyPlanResponse["actions"] }) {
+function ActionTable({
+  title,
+  actions,
+  fallbackStatus = "proposed",
+}: {
+  title: string;
+  actions: ApplyPlanResponse["actions"];
+  fallbackStatus?: string;
+}) {
   return (
     <div className="apply-action-group">
       <h3>{title}</h3>
-      <ol className="apply-actions">
+      <div className="apply-result-table">
+        <div className="apply-result-row header">
+          <span>Title</span>
+          <span>Task ID</span>
+          <span>Old time</span>
+          <span>New time</span>
+          <span>Status</span>
+        </div>
         {actions.slice(0, 8).map((action, index) => (
-          <li key={`${title}-${action.action ?? action.type ?? "action"}-${action.title ?? index}`}>
-            <strong>{formatActionType(action.action ?? action.type)}</strong>
-            <span>{action.title ?? "Untitled task"}</span>
-            {action.start_datetime ? <span>{formatDateTime(action.start_datetime)}</span> : null}
-            {typeof action.duration === "number" ? <span>{action.duration} min</span> : null}
-            {action.reason ? <span>{action.reason}</span> : null}
-            {action.error ? <span>{action.error}</span> : null}
-          </li>
+          <div
+            className="apply-result-row"
+            key={`${title}-${action.action ?? action.type ?? "action"}-${action.task_id ?? action.title ?? index}`}
+          >
+            <span>
+              <strong>{action.title ?? "Untitled task"}</strong>
+              <small>
+                {formatActionType(action.action ?? action.type)}
+                {typeof action.duration === "number" ? ` · ${action.duration} min` : ""}
+                {action.reason ? ` · ${action.reason}` : ""}
+                {action.error ? ` · ${action.error}` : ""}
+              </small>
+            </span>
+            <span>{action.task_id ?? "Missing"}</span>
+            <span>{formatOptionalDateTime(action.old_scheduled_time)}</span>
+            <span>{formatOptionalDateTime(action.new_scheduled_time ?? action.start_datetime)}</span>
+            <span className={`apply-status ${String(action.status ?? fallbackStatus).toLowerCase()}`}>
+              {action.status ?? fallbackStatus}
+            </span>
+          </div>
         ))}
-      </ol>
+      </div>
     </div>
   );
 }
@@ -646,6 +663,10 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatOptionalDateTime(value: string | null | undefined) {
+  return value ? formatDateTime(value) : "Unscheduled";
 }
 
 function localDateString(date: Date) {
